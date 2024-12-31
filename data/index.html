@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html>
+<meta charset='UTF-8'>
+<head>
+    <style>
+        body { font-family: Arial, sans-serif; text-align: center; }
+        table { margin: 0 auto; border-collapse: collapse; }
+        th, td { border: 1px solid #ddd; padding: 8px; }
+        th { background-color: #8bc1c3; }
+        canvas { display: none; margin: 20px auto; }
+    </style>
+</head>
+<body>
+    <h1>Данные датчика</h1>
+    <table>
+        <tr><th>Параметр</th><th>Значение</th></tr>
+        <tr><td>Температура</td><td id="temperature"></td></tr>
+        <tr><td>Влажность</td><td id="humidity"></td></tr>
+        <tr><td>Точка росы</td><td id="dewPoint"></td></tr>
+        <tr><td>Давление</td><td id="pressure"></td></tr>
+    </table>
+    <button id="toggleGraphButton">Показать/Скрыть график</button>
+    <canvas id="chart" style="display: none;"></canvas>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
+    <script src="/script.js"></script> </body>
+</html>
