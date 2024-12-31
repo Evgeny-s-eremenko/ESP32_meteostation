@@ -33,6 +33,20 @@ SemaphoreHandle_t wifiSemaphore; //Семафор на запуск taskNTP пр
 SemaphoreHandle_t ntpSemaphore; // Семафор на запуск updateHistoryTask при синхронизации NTP
 unsigned long initialEpoch = 0; // Переменная для хранения начального Unix timestamp
 
+// -------------------------- Объявления функций (прототипы) --------------------------
+void synchronizeWithNTP(); // Объявление функции synchronizeWithNTP
+void handleGraphData();
+void handleRoot();
+void taskWebServer(void *pvParameters);
+void taskNTP(void *pvParameters);
+void taskNRF905(void *pvParameters);
+void taskBMP280(void *pvParameters);
+void updateHistoryTask(void *pvParameters);
+void taskSerialPrint(void *pvParameters);
+void taskWifiMonitor(void *pvParameters);
+void addValue(float *history, float value);
+float calculateDewPoint(float temperature, float humidity);
+
 // Структура для параметров updateHistoryTask
 struct UpdateHistoryParams {
     unsigned long initialEpoch;
@@ -168,7 +182,7 @@ void taskNTP(void *pvParameters) {
         Serial.println("taskNTP started after wifi connection.");
         while (true) {
             synchronizeWithNTP();
-            vTaskDelay(3600000 / portTICK_PERIOD_MS); // Ждем 1 час
+            vTaskDelay(30000 / portTICK_PERIOD_MS); // Ждем 1 час
         }
     }
     vTaskDelete(NULL);
@@ -406,7 +420,7 @@ void setup() {
   xTaskCreate(taskNTP, "NTP Client", 16384, NULL, 4, NULL);
   xTaskCreate(taskNRF905, "NRF905 Receiver", 2048, NULL, 1, NULL);
   xTaskCreate(taskBMP280, "BMP280 Sensor", 2048, NULL, 1, NULL);
-  xTaskCreate(updateHistoryTask, "Update History Task", 16384, NULL, 2, NULL);
+//  xTaskCreate(updateHistoryTask, "Update History Task", 16384, NULL, 2, NULL);
   xTaskCreate(taskWebServer, "Web Server", 16384, NULL, 3, NULL);
   xTaskCreate(taskSerialPrint, "Serial Print", 2048, NULL, 5, NULL);
 }
