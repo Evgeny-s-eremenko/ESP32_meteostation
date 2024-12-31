@@ -108,8 +108,7 @@ function fetchDataAndUpdate() {
         })
         .catch(error => console.error("Ошибка загрузки данных:", error))
         .finally(() => {
-            fetchingData = false;
-            setTimeout(fetchDataAndUpdate, 5000);
+            fetchingData = false;            
         });
 }
 
