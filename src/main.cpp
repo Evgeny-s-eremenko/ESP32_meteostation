@@ -28,16 +28,22 @@ WebServer server(80);                                            // Веб-се�
 WiFiUDP ntpUDP;                                                  // NTP для синхронизации времени
 NTPClient timeClient(ntpUDP, "91.206.16.3", 10 * 3600, 60000);  // Клиент NTP (UTC+10)
 
+TaskHandle_t updateHistoryTaskHandle = NULL; // Хендл задачи updateHistoryTask
 SemaphoreHandle_t wifiSemaphore; //Семафор на запуск taskNTP при подключении к WiFi
 SemaphoreHandle_t ntpSemaphore; // Семафор на запуск updateHistoryTask при синхронизации NTP
 unsigned long initialEpoch = 0; // Переменная для хранения начального Unix timestamp
-unsigned long previousMillis = 0;
+
+// Структура для параметров updateHistoryTask
+struct UpdateHistoryParams {
+    unsigned long initialEpoch;
+};
 
 // --------------------------- Глобальные переменные ---------------------------
 float temperature = 0.0f;
 float humidity = 0.0f;
 float dewPoint = 0.0f;
 float pressure = 0.0f;
+
 
 // История значений
 #define MAX_VALUES 50
@@ -157,31 +163,19 @@ void taskWebServer(void *pvParameters) {
 }
 
 void taskNTP(void *pvParameters) {
-    if (xSemaphoreTake(wifiSemaphore, portMAX_DELAY) == pdTRUE) { // Ждем семафор ТОЛЬКО ОДИН РАЗ
+    // Ждем семафор WiFi
+    if (xSemaphoreTake(wifiSemaphore, portMAX_DELAY) == pdTRUE) {
         Serial.println("taskNTP started after wifi connection.");
-        while (true) { // Бесконечный цикл для периодического обновления NTP
-            if (timeClient.update()) {
-                initialEpoch = timeClient.getEpochTime();
-                Serial.print("NTP time updated: ");
-                Serial.println(initialEpoch);
-                xSemaphoreGive(ntpSemaphore);
-                Serial.println("NTP update successful.");
-            } else {
-                Serial.println("NTP update failed.");
-                Serial.println("Check network connectivity or NTP server.");
-                timeClient.end();
-                timeClient.begin();
-            }
-            vTaskDelay(60000 / portTICK_PERIOD_MS); // Задержка 1 минута
+        while (true) {
+            synchronizeWithNTP();
+            vTaskDelay(3600000 / portTICK_PERIOD_MS); // Ждем 1 час
         }
-    } else {
-        Serial.println("Failed to take WIFI semaphore, taskNTP exiting.");
-        vTaskDelete(NULL);
     }
+    vTaskDelete(NULL);
 }
 
 
-void taskNRF905(void *parameter) {
+void taskNRF905(void *pvParameters) {
   while (true) {
     if (driver.available()) {
       uint8_t buf[RH_NRF905_MAX_MESSAGE_LEN];
@@ -213,21 +207,25 @@ void taskBMP280(void *pvParameters) {
 }
 
 void updateHistoryTask(void *pvParameters) {
-    unsigned long previousMillis = millis(); // Инициализация ПЕРЕД xSemaphoreTake!!!
+    // Ждем семафор, прежде чем начать работу
     if (xSemaphoreTake(ntpSemaphore, portMAX_DELAY) == pdTRUE) {
-        Serial.println("NTP time received, updateHistoryTask started.");
+        UpdateHistoryParams *params = (UpdateHistoryParams *)pvParameters;
+        unsigned long initialEpoch = params->initialEpoch;
+        unsigned long previousMillis = millis();
+        Serial.print("initialEpoch in updateHistoryTask: ");
+        Serial.println(initialEpoch);
+
         while (true) {
-            if (initialEpoch > 1000000000UL) {
-                unsigned long currentMillis = millis();
-                unsigned long timeDifferenceMillis;
+            unsigned long currentMillis = millis();
+            unsigned long timeDifferenceMillis;
 
-                if (currentMillis >= previousMillis) {
-                    timeDifferenceMillis = currentMillis - previousMillis;
-                } else {
-                    timeDifferenceMillis = (ULONG_MAX - previousMillis) + currentMillis + 1;
-                }
+            if (currentMillis >= previousMillis) {
+                timeDifferenceMillis = currentMillis - previousMillis;
+            } else {
+                timeDifferenceMillis = (ULONG_MAX - previousMillis) + currentMillis + 1;
+            }
 
-                uint32_t timeDifferenceSeconds = timeDifferenceMillis / 1000;
+            uint32_t timeDifferenceSeconds = timeDifferenceMillis / 1000;
 
                 if (temperature != 0.0f && humidity != 0.0f && pressure != 0.0f) {
                     
@@ -249,21 +247,47 @@ void updateHistoryTask(void *pvParameters) {
 
                     currentIndex = (currentIndex + 1) % MAX_VALUES;
 
-                    if (currentIndex == 0 && !historyFull) {
-                        historyFull = true;
-                    }
+                if (currentIndex == 0 && !historyFull) {
+                    historyFull = true;
                 }
-                previousMillis = currentMillis; // Обновление previousMillis в конце цикла
-            } else {
-                Serial.println("initialEpoch is still not valid! Waiting...");
-                vTaskDelay(1000 / portTICK_PERIOD_MS);
-                continue;
             }
+
+            previousMillis = currentMillis;
             vTaskDelay(5000 / portTICK_PERIOD_MS);
         }
+    }
+    vTaskDelete(NULL); 
+}
+
+void synchronizeWithNTP() {
+    if (WiFi.status() == WL_CONNECTED) {
+        if (timeClient.update()) {
+            initialEpoch = timeClient.getEpochTime();
+            Serial.print("NTP time updated: ");
+            Serial.println(initialEpoch);
+
+            // Даем семафор ТОЛЬКО после успешного обновления NTP
+            xSemaphoreGive(ntpSemaphore);
+
+            // Пересоздаем задачу updateHistoryTask с новым initialEpoch
+            if (updateHistoryTaskHandle != NULL) {
+                vTaskDelete(updateHistoryTaskHandle);
+            }
+            UpdateHistoryParams params;
+            params.initialEpoch = initialEpoch;
+            BaseType_t xReturned;
+            xReturned = xTaskCreate(updateHistoryTask, "Update History Task", 16384, &params, 2, &updateHistoryTaskHandle);
+            if( xReturned == pdPASS ) {
+                Serial.println("Task created");
+            }
+            else {
+                Serial.println("Task not created");
+            }
+        } else {
+            Serial.println("NTP update failed.");
+        }
     } else {
-        Serial.println("Failed to take NTP semaphore, updateHistoryTask exiting.");
-        vTaskDelete(NULL);
+        Serial.println("WiFi not connected. Cannot synchronize with NTP.");
     }
 }
 
@@ -286,19 +310,14 @@ void taskSerialPrint(void *pvParameters) {
 }
 
 void taskWifiMonitor(void *pvParameters) {
-    while (true) {
-        if (WiFi.status() == WL_CONNECTED) {
-            Serial.println("Wi-Fi connected, waiting 10 seconds...");
-            vTaskDelay(10000 / portTICK_PERIOD_MS); // Задержка 10 секунды
-            Serial.println("Giving wifiSemaphore.");
-            xSemaphoreGive(wifiSemaphore); // Выдаем семафор после задержки
-            vTaskDelete(NULL); // Задача больше не нужна
-        } else {
-            Serial.println("Waiting for Wi-Fi connection...");
-            WiFi.begin(ssid, password); // Попытка подключения
-            vTaskDelay(5000 / portTICK_PERIOD_MS); // Проверяем каждые 5 секунд
-        }
+    while (WiFi.status() != WL_CONNECTED) {
+        WiFi.begin(ssid, password);
+        vTaskDelay(5000 / portTICK_PERIOD_MS);
+        Serial.println("Connecting to WiFi...");
     }
+    xSemaphoreGive(wifiSemaphore); // Отдаем семафор после подключения
+    Serial.println("WiFi Connected");
+    vTaskDelete(NULL);
 }
 // ----------------------------- Setup -----------------------------
 void setup() {
@@ -321,6 +340,7 @@ void setup() {
   Serial.println("Wi-Fi подключен");
   Serial.println(WiFi.localIP());
   wifiSemaphore = xSemaphoreCreateBinary();
+  xSemaphoreTake(wifiSemaphore, 0); // Забираем семафор WiFi
   
   timeClient.begin();
       
