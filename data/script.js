@@ -1,6 +1,5 @@
 let chart;
-let fetchingData = false; // Флаг для отслеживания выполнения fetch
-let dataCounter = 0; // Счетчик для отладки
+let fetchingData = false;
 
 function getLastNonZeroValue(arr) {
     if (!arr || arr.length === 0) {
@@ -17,7 +16,7 @@ function getLastNonZeroValue(arr) {
 }
 
 function updateData(data) {
-    if (!data || !data.time || !data.temperature || !data.humidity || !data.dewPoint || !data.pressure) {
+    if (!data || !data.counter || !data.temperature || !data.humidity || !data.dewPoint || !data.pressure) {
         console.warn("Некорректные данные для обновления таблицы");
         document.getElementById("temperature").textContent = "Данные отсутствуют";
         document.getElementById("humidity").textContent = "Данные отсутствуют";
@@ -30,7 +29,7 @@ function updateData(data) {
     const lastHumidity = getLastNonZeroValue(data.humidity);
     const lastDewPoint = getLastNonZeroValue(data.dewPoint);
     const lastPressure = getLastNonZeroValue(data.pressure);
-    const lastTime = data.time[data.time.length - 1];
+    const lastCounter = data.counter[data.counter.length - 1]; // Получаем последнее значение счетчика
 
     document.getElementById("temperature").textContent = lastTemperature !== null ? lastTemperature.toFixed(2) + " °C" : "0.00 °C";
     document.getElementById("humidity").textContent = lastHumidity !== null ? lastHumidity.toFixed(2) + " %" : "0.00 %";
@@ -40,15 +39,12 @@ function updateData(data) {
     if (chart) {
         const MAX_DATA_POINTS = 50;
 
-        const absoluteTime = new Date(lastTime * 1000); // Преобразуем UNIX-время в дату
-
-        chart.data.labels.push(absoluteTime);
+        chart.data.labels.push(lastCounter); // Используем счетчик как метку по оси X
         chart.data.datasets[0].data.push(lastTemperature);
         chart.data.datasets[1].data.push(lastHumidity);
         chart.data.datasets[2].data.push(lastDewPoint);
         chart.data.datasets[3].data.push(lastPressure);
 
-        // Удаляем старые данные, если превышено количество точек
         if (chart.data.labels.length > MAX_DATA_POINTS) {
             chart.data.labels.shift();
             chart.data.datasets.forEach(dataset => dataset.data.shift());
@@ -62,7 +58,7 @@ function createChart(data) {
     const ctx = document.getElementById('chart').getContext('2d');
     if (chart) {
         chart.destroy();
-        chart = null; // Убедитесь, что ссылка сбрасывается
+        chart = null;
     }
     chart = new Chart(ctx, {
         type: 'line',
@@ -79,13 +75,10 @@ function createChart(data) {
             animation: false,
             scales: {
                 x: {
-                    type: 'time',
-                    time: {
-                        unit: 'second',
-                        displayFormats: {
-                            second: 'HH:mm:ss',
-                        },
-                    },
+                    title: { // Добавляем заголовок оси X
+                        display: true,
+                        text: 'Номер измерения' // или 'Счетчик'
+                    }
                 },
             },
         },
@@ -104,31 +97,29 @@ function fetchDataAndUpdate() {
             return response.json();
         })
         .then(data => {
-            if (data && data.time && data.time.length > 0) {
+            if (data && data.counter && data.counter.length > 0) { // Проверяем наличие counter
                 if (!chart) {
                     createChart(data);
-                } else { // Обновление графика только если он уже создан
-                    updateData(data);
                 }
+                updateData(data);
             } else {
-                console.warn("Данные о времени отсутствуют, график не может быть создан/обновлен.");
+                console.warn("Данные о счетчике отсутствуют, график не может быть создан/обновлен.");
             }
         })
         .catch(error => console.error("Ошибка загрузки данных:", error))
         .finally(() => {
-            fetchingData = false;
-            setTimeout(fetchDataAndUpdate, 5000);
+            fetchingData = false;            
         });
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-    const toggleButton = document.getElementById('toggleGraphButton'); // Используем ID
+    const toggleButton = document.getElementById('toggleGraphButton');
     const chartCanvas = document.getElementById('chart');
 
     toggleButton.addEventListener('click', () => {
         if (chartCanvas.style.display === 'none') {
             chartCanvas.style.display = 'block';
-            if(chart) chart.resize();
+            if (chart) chart.resize();
         } else {
             chartCanvas.style.display = 'none';
         }
