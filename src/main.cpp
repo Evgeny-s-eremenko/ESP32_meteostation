@@ -316,10 +316,10 @@ void taskSendDataToNextion(void *pvParameters) {
 
 void taskSendGraphToNextion(void *pvParameters) {
     while (1) {
-        int scaledTemperature = map(temperature, -40, 40, 1, 60); // Масштабируем
-        int scaledDewPoint = map(dewPoint, -40, 40, 1, 60); 
-        int scaledHumidity = map(humidity, 0, 100, 1, 100);
-        int scaledPressure = map(pressure, 980, 1025, 1, 100);
+        int scaledTemperature = map(temperature, -40, 40, 0, 255); // Масштабируем
+        int scaledDewPoint = map(dewPoint, -40, 40, 0, 255); 
+        int scaledHumidity = map(humidity, 0, 100, 0, 255);
+        int scaledPressure = map(pressure, 980, 1025, 0, 255);
 
         sendGraphData("l", 0, scaledTemperature);
         sendGraphData("1", 1, scaledDewPoint);
