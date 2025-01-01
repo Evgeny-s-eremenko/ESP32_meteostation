@@ -5,6 +5,7 @@
 #include <WebServer.h>
 #include <SPI.h>
 #include "LittleFS.h"
+#include <Nextion.h>
 
 // put function declarations here:
 // ----------------------------- Wi-Fi и сервер -----------------------------
@@ -23,7 +24,21 @@ Adafruit_BMP280 bmp;                                  // Датчик давле
 RH_NRF905 driver(NRF905_CE, NRF905_TX_EN, NRF905_CS); // Радиомодуль nRF905
 WebServer server(80);                                 // Веб-сервер на порту 80
 
+NexText x0 = NexText(0, 5, "x0");
+NexText x1 = NexText(0, 6, "x1");
+NexText x2 = NexText(0, 7, "x2");
+NexText x3 = NexText(0, 8, "x3");
+
+
+// Массив для обработки событий Nextion (должен быть глобальным)
+NexTouch *nex_listen_list[] = {
+    &x0, &x1, &x2, &x3, // Добавляем все компоненты, события которых нужно обрабатывать
+    NULL
+};
+
 // -------------------------- Объявления функций (прототипы) --------------------------
+void taskSendDataToNextion();
+void taskHandleNextionEvents();
 void handleGraphData();
 void handleRoot();
 void taskWebServer(void *pvParameters);
@@ -35,10 +50,10 @@ void addValue(float *history, float value);
 float calculateDewPoint(float temperature, float humidity);
 
 // --------------------------- Глобальные переменные ---------------------------
-float temperature = 0.0f;
-float humidity = 0.0f;
-float dewPoint = 0.0f;
-float pressure = 0.0f;
+volatile float temperature = 0.0f;
+volatile float humidity = 0.0f;
+volatile float dewPoint = 0.0f;
+volatile float pressure = 0.0f;
 
 // История значений
 #define MAX_VALUES 50
@@ -58,6 +73,7 @@ void addValue(float *history, float value)
   history[currentIndex] = value;
 }
 
+// -------------------------- Функция расчета точки росы -----------------------------
 float calculateDewPoint(float temperature, float humidity)
 {
   float a = 17.27;
@@ -268,10 +284,38 @@ void taskSerialPrint(void *pvParameters)
   }
 }
 
+void taskSendDataToNextion(void *pvParameters) {
+    while (1) {
+        // Преобразуем String в const char* с помощью c_str()
+        x0.setText(String(temperature, 2).c_str());
+        x1.setText(String(dewPoint, 2).c_str());
+        x2.setText(String(pressure, 2).c_str());
+        x3.setText(String(humidity, 2).c_str());
+
+        vTaskDelay(pdMS_TO_TICKS(1000));
+    }
+}
+
+void taskHandleNextionEvents(void *pvParameters) {
+    while (1) {
+        nexLoop(nex_listen_list);
+        vTaskDelay(pdMS_TO_TICKS(10)); // Небольшая задержка, чтобы не загружать процессор
+    }
+}
+
+void taskInitNextion(void *pvParameters) {
+    vTaskDelay(500 / portTICK_PERIOD_MS);
+    nexInit();
+    Serial.println("Starting Nextion initialization task");
+    Serial2.begin(9600); // Только инициализация Serial2
+    Serial.println("Serial2 initialized");
+    vTaskDelete(NULL);
+}
 // ----------------------------- Setup -----------------------------
 void setup()
 {
   Serial.begin(115200);
+
   SPI.begin(NRF905_SPI_SCK, NRF905_SPI_MISO, NRF_SPI_MOSI);
 
   // Инициализация файловой системы
@@ -328,11 +372,14 @@ void setup()
 
   // Создание задач FreeRTOS
 
-  xTaskCreate(taskNRF905, "NRF905 Receiver", 2048, NULL, 1, NULL);
-  xTaskCreate(taskBMP280, "BMP280 Sensor", 2048, NULL, 1, NULL);
-  xTaskCreate(updateHistoryTask, "Update History Task", 16384, NULL, 2, NULL);
-  xTaskCreate(taskWebServer, "Web Server", 16384, NULL, 3, NULL);
-  xTaskCreate(taskSerialPrint, "Serial Print", 2048, NULL, 5, NULL);
+  xTaskCreate(taskInitNextion, "Init Nextion", 4096, NULL, 3, NULL);
+  xTaskCreate(taskNRF905, "NRF905 Receiver", 2048, NULL, 5, NULL);
+  xTaskCreate(taskBMP280, "BMP280 Sensor", 2048, NULL, 4, NULL);
+  xTaskCreate(taskSendDataToNextion, "Send Data to Nextion Task", 4096, NULL, 2, NULL);
+  xTaskCreate(taskHandleNextionEvents, "Handle Nextion Events", 4096, NULL, 1, NULL);
+  xTaskCreate(updateHistoryTask, "Update History Task", 16384, NULL, 6, NULL);
+  xTaskCreate(taskWebServer, "Web Server", 16384, NULL, 5, NULL);
+  xTaskCreate(taskSerialPrint, "Serial Print", 2048, NULL, 1, NULL);
 }
 
 // ----------------------------- Main loop -----------------------------
