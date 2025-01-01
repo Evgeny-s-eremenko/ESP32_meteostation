@@ -1,5 +1,6 @@
 let chart;
 let fetchingData = false;
+let initialDataLoaded = false; // Флаг, указывающий, что первоначальные данные загружены
 
 function getLastNonZeroValue(arr) {
     if (!arr || arr.length === 0) {
@@ -97,18 +98,20 @@ function fetchDataAndUpdate() {
             return response.json();
         })
         .then(data => {
-            if (data && data.counter && data.counter.length > 0) { // Проверяем наличие counter
+            if (data && data.counter && data.counter.length > 0) {
                 if (!chart) {
                     createChart(data);
+                    initialDataLoaded = true; // Устанавливаем флаг после первоначальной загрузки
+                } else if (initialDataLoaded) { // Обновляем только после первоначальной загрузки
+                    updateData(data);
                 }
-                updateData(data);
             } else {
-                console.warn("Данные о счетчике отсутствуют, график не может быть создан/обновлен.");
+                console.warn("Данные отсутствуют или некорректны.");
             }
         })
         .catch(error => console.error("Ошибка загрузки данных:", error))
         .finally(() => {
-            fetchingData = false;            
+            fetchingData = false;
         });
 }
 
@@ -125,6 +128,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    fetchDataAndUpdate();
-    setInterval(fetchDataAndUpdate, 5000);
+    fetchDataAndUpdate(); // Первоначальная загрузка и отрисовка
+    setInterval(fetchDataAndUpdate, 5000); // Запускаем периодическое обновление
 });
