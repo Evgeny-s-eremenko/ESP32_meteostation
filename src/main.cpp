@@ -29,7 +29,9 @@ WebServer server(80);                                 // Веб-сервер н�
 
 
 // -------------------------- Объявления функций (прототипы) --------------------------
+void sendGraphData();
 void sendCommand();
+void taskSendDataToNextion();
 void taskSendDataToNextion();
 void handleGraphData();
 void handleRoot();
@@ -276,6 +278,18 @@ void taskSerialPrint(void *pvParameters)
   }
 }
 
+void sendGraphData(const char* waveformID, int channel, int value) {
+  nextion.print("add ");
+  nextion.print(waveformID); // id графика
+  nextion.print(",");
+  nextion.print(channel);
+  nextion.print(",");
+  nextion.print(value);
+  nextion.write(0xFF);
+  nextion.write(0xFF);
+  nextion.write(0xFF);
+}
+
 void sendCommand(const char* command, int value) {
     nextion.print(command); // Отправляем команду (например, x0.val=)
     nextion.print(value);   // Отправляем значение
@@ -296,10 +310,25 @@ void taskSendDataToNextion(void *pvParameters) {
       sendCommand("x1.val=", dew_int);
       sendCommand("x3.val=", hum_int);
       sendCommand("x2.val=", press_int);
-      vTaskDelay(pdMS_TO_TICKS(1000));
+      vTaskDelay(pdMS_TO_TICKS(5000));
     }
 }
 
+void taskSendGraphToNextion(void *pvParameters) {
+    while (1) {
+        int scaledTemperature = map(temperature, -40, 40, 1, 60); // Масштабируем
+        int scaledDewPoint = map(dewPoint, -40, 40, 1, 60); 
+        int scaledHumidity = map(humidity, 0, 100, 1, 100);
+        int scaledPressure = map(pressure, 980, 1025, 1, 100);
+
+        sendGraphData("l", 0, scaledTemperature);
+        sendGraphData("1", 1, scaledDewPoint);
+        sendGraphData("4", 0, scaledHumidity);
+        sendGraphData("3", 0, scaledPressure);
+
+        vTaskDelay(pdMS_TO_TICKS(10000));
+    }
+}
 // ----------------------------- Setup -----------------------------
 void setup()
 {
@@ -366,6 +395,7 @@ void setup()
   xTaskCreate(taskNRF905, "NRF905 Receiver", 2048, NULL, 5, NULL);
   xTaskCreate(taskBMP280, "BMP280 Sensor", 2048, NULL, 4, NULL);
   xTaskCreate(taskSendDataToNextion, "Send Data to Nextion Task", 4096, NULL, 2, NULL);
+  xTaskCreate(taskSendGraphToNextion, "Send Graph Data", 4096, NULL, 2, NULL);
   xTaskCreate(updateHistoryTask, "Update History Task", 16384, NULL, 6, NULL);
   xTaskCreate(taskWebServer, "Web Server", 16384, NULL, 5, NULL);
   xTaskCreate(taskSerialPrint, "Serial Print", 2048, NULL, 1, NULL);
