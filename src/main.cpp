@@ -5,7 +5,6 @@
 #include <WebServer.h>
 #include <SPI.h>
 #include "LittleFS.h"
-#include <Nextion.h>
 
 // put function declarations here:
 // ----------------------------- Wi-Fi и сервер -----------------------------
@@ -19,26 +18,19 @@ const char *password = "evgen850517";
 #define NRF905_CE 27
 #define NRF905_TX_EN 25
 #define NRF905_CS 15
+// ---------------------- Определение пинов serial2 --------------------------
+HardwareSerial nextion(2); // Используем Serial2 для связи с дисплеем
+#define RX2 16  // RX пин ESP32
+#define TX2 17  // TX пин ESP32
 
 Adafruit_BMP280 bmp;                                  // Датчик давления BMP280
 RH_NRF905 driver(NRF905_CE, NRF905_TX_EN, NRF905_CS); // Радиомодуль nRF905
 WebServer server(80);                                 // Веб-сервер на порту 80
 
-NexText x0 = NexText(0, 5, "x0");
-NexText x1 = NexText(0, 6, "x1");
-NexText x2 = NexText(0, 7, "x2");
-NexText x3 = NexText(0, 8, "x3");
-
-
-// Массив для обработки событий Nextion (должен быть глобальным)
-NexTouch *nex_listen_list[] = {
-    &x0, &x1, &x2, &x3, // Добавляем все компоненты, события которых нужно обрабатывать
-    NULL
-};
 
 // -------------------------- Объявления функций (прототипы) --------------------------
+void sendCommand();
 void taskSendDataToNextion();
-void taskHandleNextionEvents();
 void handleGraphData();
 void handleRoot();
 void taskWebServer(void *pvParameters);
@@ -284,37 +276,36 @@ void taskSerialPrint(void *pvParameters)
   }
 }
 
+void sendCommand(const char* command, int value) {
+    nextion.print(command); // Отправляем команду (например, x0.val=)
+    nextion.print(value);   // Отправляем значение
+    nextion.write(0xFF);    // Конец команды
+    nextion.write(0xFF);
+    nextion.write(0xFF);
+}
+
 void taskSendDataToNextion(void *pvParameters) {
     while (1) {
-        // Преобразуем String в const char* с помощью c_str()
-        x0.setText(String(temperature, 2).c_str());
-        x1.setText(String(dewPoint, 2).c_str());
-        x2.setText(String(pressure, 2).c_str());
-        x3.setText(String(humidity, 2).c_str());
-
-        vTaskDelay(pdMS_TO_TICKS(1000));
+      // Масштабируем значения до целых чисел
+      int temp_int = temperature * 100;
+      int dew_int = dewPoint * 100;
+      int hum_int = humidity * 100;
+      int press_int = pressure * 100;
+      // Отправляем на Nextion
+      sendCommand("x0.val=", temp_int);
+      sendCommand("x1.val=", dew_int);
+      sendCommand("x3.val=", hum_int);
+      sendCommand("x2.val=", press_int);
+      vTaskDelay(pdMS_TO_TICKS(1000));
     }
 }
 
-void taskHandleNextionEvents(void *pvParameters) {
-    while (1) {
-        nexLoop(nex_listen_list);
-        vTaskDelay(pdMS_TO_TICKS(10)); // Небольшая задержка, чтобы не загружать процессор
-    }
-}
-
-void taskInitNextion(void *pvParameters) {
-    vTaskDelay(500 / portTICK_PERIOD_MS);
-    nexInit();
-    Serial.println("Starting Nextion initialization task");
-    Serial2.begin(9600); // Только инициализация Serial2
-    Serial.println("Serial2 initialized");
-    vTaskDelete(NULL);
-}
 // ----------------------------- Setup -----------------------------
 void setup()
 {
   Serial.begin(115200);
+  nextion.begin(9600, SERIAL_8N1, RX2, TX2); // Инициализация Serial2
+  Serial.println("ESP32 + Nextion Initialized");
 
   SPI.begin(NRF905_SPI_SCK, NRF905_SPI_MISO, NRF_SPI_MOSI);
 
@@ -372,11 +363,9 @@ void setup()
 
   // Создание задач FreeRTOS
 
-  xTaskCreate(taskInitNextion, "Init Nextion", 4096, NULL, 3, NULL);
   xTaskCreate(taskNRF905, "NRF905 Receiver", 2048, NULL, 5, NULL);
   xTaskCreate(taskBMP280, "BMP280 Sensor", 2048, NULL, 4, NULL);
   xTaskCreate(taskSendDataToNextion, "Send Data to Nextion Task", 4096, NULL, 2, NULL);
-  xTaskCreate(taskHandleNextionEvents, "Handle Nextion Events", 4096, NULL, 1, NULL);
   xTaskCreate(updateHistoryTask, "Update History Task", 16384, NULL, 6, NULL);
   xTaskCreate(taskWebServer, "Web Server", 16384, NULL, 5, NULL);
   xTaskCreate(taskSerialPrint, "Serial Print", 2048, NULL, 1, NULL);
