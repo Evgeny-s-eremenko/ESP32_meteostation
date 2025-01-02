@@ -22,14 +22,6 @@ const char *password = "evgen850517";
 HardwareSerial nextion(2); // Используем Serial2 для связи с дисплеем
 #define RX2 16  // RX пин ESP32
 #define TX2 17  // TX пин ESP32
-// ---------------------- Определение пинов serial2 --------------------------
-HardwareSerial nextion(2); // Используем Serial2 для связи с дисплеем
-#define RX2 16  // RX пин ESP32
-#define TX2 17  // TX пин ESP32
-
-Adafruit_BMP280 bmp;                                  // Датчик давления BMP280
-RH_NRF905 driver(NRF905_CE, NRF905_TX_EN, NRF905_CS); // Радиомодуль nRF905
-WebServer server(80);                                 // Веб-сервер на порту 80
 
 Adafruit_BMP280 bmp;                                  // Датчик давления BMP280
 RH_NRF905 driver(NRF905_CE, NRF905_TX_EN, NRF905_CS); // Радиомодуль nRF905
@@ -39,6 +31,7 @@ WebServer server(80);                                 // Веб-сервер н�
 // -------------------------- Объявления функций (прототипы) --------------------------
 void sendGraphData();
 void sendCommand();
+void taskSendDataToNextion();
 void taskSendDataToNextion();
 void handleGraphData();
 void handleRoot();
