@@ -32,7 +32,6 @@ WebServer server(80);                                 // Веб-сервер н�
 void sendGraphData();
 void sendCommand();
 void taskSendDataToNextion();
-void taskSendDataToNextion();
 void handleGraphData();
 void handleRoot();
 void taskWebServer(void *pvParameters);
