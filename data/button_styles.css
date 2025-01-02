@@ -1,0 +1,22 @@
+.table-header-button {
+    background-color: #8bc1c3; /* Цвет фона (как у th) */
+    font-weight: bold; /* Жирный текст */
+    padding: 8px; /* Отступы */
+    text-align: left; /* Выравнивание текста */
+    border: 1px solid #ddd; /* Рамка */
+    cursor: pointer; /* Курсор при наведении */
+    font-size: inherit; /* Наследуем размер шрифта */
+    font-family: inherit; /* Наследуем шрифт */
+    box-sizing: border-box; /* Важно для корректного расчета размеров */
+    display: inline-block;
+    width: auto;
+    border-radius: 0;
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    margin: 0;
+}
+
+.table-header-button:hover {
+    background-color: #7ab3b5; /* Немного темнее при наведении */
+}
