@@ -1,13 +1,10 @@
 #include <Arduino.h>
 #include <RH_NRF905.h>
-#include <NTPClient.h>
 #include <Adafruit_BMP280.h>
 #include <WiFi.h>
 #include <WebServer.h>
 #include <SPI.h>
-#include <WiFiUdp.h>
 #include "LittleFS.h"
-#include <stdint.h>
 
 // put function declarations here:
 // ----------------------------- Wi-Fi и сервер -----------------------------
@@ -21,61 +18,57 @@ const char *password = "REMOVED";
 #define NRF905_CE 27
 #define NRF905_TX_EN 25
 #define NRF905_CS 15
+// ---------------------- Определение пинов serial2 --------------------------
+HardwareSerial nextion(2); // Используем Serial2 для связи с дисплеем
+#define RX2 16  // RX пин ESP32
+#define TX2 17  // TX пин ESP32
 
-Adafruit_BMP280 bmp;                                             // Датчик давления BMP280
-RH_NRF905 driver(NRF905_CE, NRF905_TX_EN, NRF905_CS);            // Радиомодуль nRF905
-WebServer server(80);                                            // Веб-сервер на порту 80
-WiFiUDP ntpUDP;                                                  // NTP для синхронизации времени
-NTPClient timeClient(ntpUDP, "91.206.16.3", 10 * 3600, 60000);  // Клиент NTP (UTC+10)
+Adafruit_BMP280 bmp;                                  // Датчик давления BMP280
+RH_NRF905 driver(NRF905_CE, NRF905_TX_EN, NRF905_CS); // Радиомодуль nRF905
+WebServer server(80);                                 // Веб-сервер на порту 80
 
-TaskHandle_t updateHistoryTaskHandle = NULL; // Хендл задачи updateHistoryTask
-SemaphoreHandle_t wifiSemaphore; //Семафор на запуск taskNTP при подключении к WiFi
-SemaphoreHandle_t ntpSemaphore; // Семафор на запуск updateHistoryTask при синхронизации NTP
-unsigned long initialEpoch = 0; // Переменная для хранения начального Unix timestamp
 
 // -------------------------- Объявления функций (прототипы) --------------------------
-void synchronizeWithNTP(); // Объявление функции synchronizeWithNTP
+void sendGraphData();
+void sendCommand();
+void taskSendDataToNextion();
 void handleGraphData();
 void handleRoot();
 void taskWebServer(void *pvParameters);
-void taskNTP(void *pvParameters);
 void taskNRF905(void *pvParameters);
 void taskBMP280(void *pvParameters);
 void updateHistoryTask(void *pvParameters);
 void taskSerialPrint(void *pvParameters);
-void taskWifiMonitor(void *pvParameters);
 void addValue(float *history, float value);
 float calculateDewPoint(float temperature, float humidity);
 
-// Структура для параметров updateHistoryTask
-struct UpdateHistoryParams {
-    unsigned long initialEpoch;
-};
-
 // --------------------------- Глобальные переменные ---------------------------
-float temperature = 0.0f;
-float humidity = 0.0f;
-float dewPoint = 0.0f;
-float pressure = 0.0f;
-
+volatile float temperature = 0.0f;
+volatile float humidity = 0.0f;
+volatile float dewPoint = 0.0f;
+volatile float pressure = 0.0f;
 
 // История значений
 #define MAX_VALUES 50
-float temperatureHistory[MAX_VALUES] = { 0 };
-float humidityHistory[MAX_VALUES] = { 0 };
-float dewPointHistory[MAX_VALUES] = { 0 };
-float pressureHistory[MAX_VALUES] = { 0 };
-uint64_t timeHistory[MAX_VALUES] = { 0 };  // Инициализация массива нулями
+float temperatureHistory[MAX_VALUES] = {0};
+float humidityHistory[MAX_VALUES] = {0};
+float dewPointHistory[MAX_VALUES] = {0};
+float pressureHistory[MAX_VALUES] = {0};
+unsigned long counterHistory[MAX_VALUES] = {0}; // Массив для счетчика
 int currentIndex = 0;
-bool historyFull = false;  // Флаг, указывающий, что история заполнена
+bool historyFull = false;
 
+unsigned long counter = 0; // Глобальный счетчик
 
 // -------------------------- Функции для работы с историей --------------------------
-void addValue(float *history, float value) {
+void addValue(float *history, float value)
+{
   history[currentIndex] = value;
 }
 
-float calculateDewPoint(float temperature, float humidity) {
+// -------------------------- Функция расчета точки росы -----------------------------
+float calculateDewPoint(float temperature, float humidity)
+{
   float a = 17.27;
   float b = 237.7;
   float alpha = ((a * temperature) / (b + temperature)) + log(humidity / 100.0);
@@ -83,62 +76,78 @@ float calculateDewPoint(float temperature, float humidity) {
 }
 
 // ---------------------------- Обработчики HTTP запросов -----------------------------
-void handleGraphData() {
+void handleGraphData()
+{
   char json[4096];
   String jsonString = "{";
 
   int dataCount = 0;
-  if (historyFull) {
+  if (historyFull)
+  {
     dataCount = MAX_VALUES;
-  } else {
+  }
+  else
+  {
     dataCount = currentIndex;
   }
 
   // Отправляем данные только если есть что отправлять
-  if (dataCount > 0) {
+  if (dataCount > 0)
+  {
     jsonString += "\"temperature\":[";
-    for (int i = 0; i < dataCount; i++) {
+    for (int i = 0; i < dataCount; i++)
+    {
       int index = (currentIndex - dataCount + i + MAX_VALUES) % MAX_VALUES;
       jsonString += String(temperatureHistory[index], 2);
-      if (i < dataCount - 1) jsonString += ",";
+      if (i < dataCount - 1)
+        jsonString += ",";
     }
     jsonString += "],";
 
     jsonString += "\"humidity\":[";
-    for (int i = 0; i < dataCount; i++) {
+    for (int i = 0; i < dataCount; i++)
+    {
       int index = (currentIndex - dataCount + i + MAX_VALUES) % MAX_VALUES;
       jsonString += String(humidityHistory[index], 2);
-      if (i < dataCount - 1) jsonString += ",";
+      if (i < dataCount - 1)
+        jsonString += ",";
     }
     jsonString += "],";
 
     jsonString += "\"dewPoint\":[";
-    for (int i = 0; i < dataCount; i++) {
+    for (int i = 0; i < dataCount; i++)
+    {
       int index = (currentIndex - dataCount + i + MAX_VALUES) % MAX_VALUES;
       jsonString += String(dewPointHistory[index], 2);
-      if (i < dataCount - 1) jsonString += ",";
+      if (i < dataCount - 1)
+        jsonString += ",";
     }
     jsonString += "],";
 
     jsonString += "\"pressure\":[";
-    for (int i = 0; i < dataCount; i++) {
+    for (int i = 0; i < dataCount; i++)
+    {
       int index = (currentIndex - dataCount + i + MAX_VALUES) % MAX_VALUES;
       jsonString += String(pressureHistory[index], 2);
-      if (i < dataCount - 1) jsonString += ",";
+      if (i < dataCount - 1)
+        jsonString += ",";
     }
     jsonString += "],";
 
-    jsonString += "\"time\":[";
-    for (int i = 0; i < dataCount; i++) {
+    jsonString += "\"counter\":["; // Отправляем значения счетчика
+    for (int i = 0; i < dataCount; i++)
+    {
       int index = (currentIndex - dataCount + i + MAX_VALUES) % MAX_VALUES;
-      unsigned long currentTime = timeHistory[index];
-      jsonString += String(currentTime);  // Отправляем *полное* время
-      if (i < dataCount - 1) jsonString += ",";
+      jsonString += String(counterHistory[index]);
+      if (i < dataCount - 1)
+        jsonString += ",";
     }
     jsonString += "]";
 
     jsonString += "}";
-  } else {
+  }
+  else
+  {
     jsonString += "\"temperature\":[],";
     jsonString += "\"humidity\":[],";
     jsonString += "\"dewPoint\":[],";
@@ -151,162 +160,107 @@ void handleGraphData() {
   server.send(200, "application/json", json);
 }
 
-void handleRoot() {
-  if (LittleFS.exists("/index.html")) {
+void handleRoot()
+{
+  if (LittleFS.exists("/index.html"))
+  {
     File file = LittleFS.open("/index.html", "r");
-    if (file) {
+    if (file)
+    {
       server.streamFile(file, "text/html");
       file.close();
-    } else {
+    }
+    else
+    {
       server.send(500, "text/plain", "Failed to open index.html");
     }
-  } else {
+  }
+  else
+  {
     server.send(404, "text/plain", "index.html not found");
   }
 }
 
-
 // --------------------------- Задачи FreeRTOS ---------------------------
 
-
-void taskWebServer(void *pvParameters) {
-  while (true) {
-    server.handleClient();                // Обработка запросов
-    vTaskDelay(10 / portTICK_PERIOD_MS);  // Задержка, чтобы избежать перегрузки процессора
+void taskWebServer(void *pvParameters)
+{
+  while (true)
+  {
+    server.handleClient();               // Обработка запросов
+    vTaskDelay(10 / portTICK_PERIOD_MS); // Задержка, чтобы избежать перегрузки процессора
   }
 }
 
-void taskNTP(void *pvParameters) {
-    // Ждем семафор WiFi
-    if (xSemaphoreTake(wifiSemaphore, portMAX_DELAY) == pdTRUE) {
-        Serial.println("taskNTP started after wifi connection.");
-        while (true) {
-            synchronizeWithNTP();
-            vTaskDelay(30000 / portTICK_PERIOD_MS); // Ждем 1 час
-        }
-    }
-    vTaskDelete(NULL);
-}
-
-
-void taskNRF905(void *pvParameters) {
-  while (true) {
-    if (driver.available()) {
+void taskNRF905(void *pvParameters)
+{
+  while (true)
+  {
+    if (driver.available())
+    {
       uint8_t buf[RH_NRF905_MAX_MESSAGE_LEN];
       uint8_t len = sizeof(buf);
-      if (driver.recv(buf, &len)) {
-        buf[len] = '\0';  // Завершаем строку
+      if (driver.recv(buf, &len))
+      {
+        buf[len] = '\0'; // Завершаем строку
 
         float temp, hum;
-        if (sscanf((char *)buf, "T:%f H:%f", &temp, &hum) == 2) {
-          temperature = temp;  // Обновляем глобальную переменную
-          humidity = hum;      // Обновляем глобальную переменную
+        if (sscanf((char *)buf, "T:%f H:%f", &temp, &hum) == 2)
+        {
+          temperature = temp; // Обновляем глобальную переменную
+          humidity = hum;     // Обновляем глобальную переменную
           dewPoint = calculateDewPoint(temperature, humidity);
         }
       }
     }
-    vTaskDelay(1000 / portTICK_PERIOD_MS);  // Задержка 1 сек между проверками
+    vTaskDelay(1000 / portTICK_PERIOD_MS); // Задержка 1 сек между проверками
   }
 }
 
-void taskBMP280(void *pvParameters) {
-  while (true) {
-    if (bmp.begin()) {
-      pressure = bmp.readPressure() / 100.0f;  // Получаем давление
-    } else {
-      pressure = 0.0f;  // Если ошибка, устанавливаем 0
+void taskBMP280(void *pvParameters)
+{
+  while (true)
+  {
+    if (bmp.begin())
+    {
+      pressure = bmp.readPressure() / 100.0f; // Получаем давление
     }
-    vTaskDelay(5000 / portTICK_PERIOD_MS);  // Задержка 5 секунд
+    else
+    {
+      pressure = 0.0f; // Если ошибка, устанавливаем 0
+    }
+    vTaskDelay(5000 / portTICK_PERIOD_MS); // Задержка 5 секунд
   }
 }
 
-void updateHistoryTask(void *pvParameters) {
-    // Ждем семафор, прежде чем начать работу
-    if (xSemaphoreTake(ntpSemaphore, portMAX_DELAY) == pdTRUE) {
-        UpdateHistoryParams *params = (UpdateHistoryParams *)pvParameters;
-        unsigned long initialEpoch = params->initialEpoch;
-        unsigned long previousMillis = millis();
-        Serial.print("initialEpoch in updateHistoryTask: ");
-        Serial.println(initialEpoch);
+void updateHistoryTask(void *pvParameters)
+{
+  while (true)
+  {
+    if (temperature != 0.0f && humidity != 0.0f && pressure != 0.0f)
+    {
+      addValue(temperatureHistory, temperature);
+      addValue(humidityHistory, humidity);
+      addValue(dewPointHistory, dewPoint);
+      addValue(pressureHistory, pressure);
 
-        while (true) {
-            unsigned long currentMillis = millis();
-            unsigned long timeDifferenceMillis;
+      counter++;                              // Увеличиваем счетчик
+      counterHistory[currentIndex] = counter; // Сохраняем значение счетчика
 
-            if (currentMillis >= previousMillis) {
-                timeDifferenceMillis = currentMillis - previousMillis;
-            } else {
-                timeDifferenceMillis = (ULONG_MAX - previousMillis) + currentMillis + 1;
-            }
-
-            uint32_t timeDifferenceSeconds = timeDifferenceMillis / 1000;
-
-                if (temperature != 0.0f && humidity != 0.0f && pressure != 0.0f) {
-                    
-                    addValue(temperatureHistory, temperature);
-                    addValue(humidityHistory, humidity);
-                    addValue(dewPointHistory, dewPoint);
-                    addValue(pressureHistory, pressure);
-
-                    timeHistory[currentIndex] = initialEpoch + timeDifferenceSeconds;
-
-                    Serial.print("initialEpoch in updateHistoryTask: ");
-                    Serial.println(initialEpoch);
-                    Serial.print("timeDifferenceMillis: ");
-                    Serial.println(timeDifferenceMillis);
-                    Serial.print("timeDifferenceSeconds: ");
-                    Serial.println(timeDifferenceSeconds);
-                    Serial.print("timeHistory[currentIndex]: ");
-                    Serial.println(timeHistory[currentIndex]);
-
-                    currentIndex = (currentIndex + 1) % MAX_VALUES;
-
-                if (currentIndex == 0 && !historyFull) {
-                    historyFull = true;
-                }
-            }
-
-            previousMillis = currentMillis;
-            vTaskDelay(5000 / portTICK_PERIOD_MS);
-        }
+      currentIndex = (currentIndex + 1) % MAX_VALUES;
+      if (currentIndex == 0 && !historyFull)
+      {
+        historyFull = true;
+      }
     }
-    vTaskDelete(NULL); 
+    vTaskDelay(5000 / portTICK_PERIOD_MS); // Задержка 5 секунд
+  }
 }
 
-void synchronizeWithNTP() {
-    if (WiFi.status() == WL_CONNECTED) {
-        if (timeClient.update()) {
-            initialEpoch = timeClient.getEpochTime();
-            Serial.print("NTP time updated: ");
-            Serial.println(initialEpoch);
-
-            // Даем семафор ТОЛЬКО после успешного обновления NTP
-            xSemaphoreGive(ntpSemaphore);
-
-            // Пересоздаем задачу updateHistoryTask с новым initialEpoch
-            if (updateHistoryTaskHandle != NULL) {
-                vTaskDelete(updateHistoryTaskHandle);
-            }
-            UpdateHistoryParams params;
-            params.initialEpoch = initialEpoch;
-            BaseType_t xReturned;
-            xReturned = xTaskCreate(updateHistoryTask, "Update History Task", 16384, &params, 2, &updateHistoryTaskHandle);
-            if( xReturned == pdPASS ) {
-                Serial.println("Task created");
-            }
-            else {
-                Serial.println("Task not created");
-            }
-        } else {
-            Serial.println("NTP update failed.");
-        }
-    } else {
-        Serial.println("WiFi not connected. Cannot synchronize with NTP.");
-    }
-}
-
-void taskSerialPrint(void *pvParameters) {
-  while (true) {
+void taskSerialPrint(void *pvParameters)
+{
+  while (true)
+  {
     Serial.print("Температура: ");
     Serial.print(temperature);
     Serial.println(" °C");
@@ -323,23 +277,69 @@ void taskSerialPrint(void *pvParameters) {
   }
 }
 
-void taskWifiMonitor(void *pvParameters) {
-    while (WiFi.status() != WL_CONNECTED) {
-        WiFi.begin(ssid, password);
-        vTaskDelay(5000 / portTICK_PERIOD_MS);
-        Serial.println("Connecting to WiFi...");
+void sendGraphData(const char* waveformID, int channel, int value) {
+  nextion.print("add ");
+  nextion.print(waveformID); // id графика
+  nextion.print(",");
+  nextion.print(channel);
+  nextion.print(",");
+  nextion.print(value);
+  nextion.write(0xFF);
+  nextion.write(0xFF);
+  nextion.write(0xFF);
+}
+
+void sendCommand(const char* command, int value) {
+    nextion.print(command); // Отправляем команду (например, x0.val=)
+    nextion.print(value);   // Отправляем значение
+    nextion.write(0xFF);    // Конец команды
+    nextion.write(0xFF);
+    nextion.write(0xFF);
+}
+
+void taskSendDataToNextion(void *pvParameters) {
+    while (1) {
+      // Масштабируем значения до целых чисел
+      int temp_int = temperature * 100;
+      int dew_int = dewPoint * 100;
+      int hum_int = humidity * 100;
+      int press_int = pressure * 100;
+      // Отправляем на Nextion
+      sendCommand("x0.val=", temp_int);
+      sendCommand("x1.val=", dew_int);
+      sendCommand("x3.val=", hum_int);
+      sendCommand("x2.val=", press_int);
+      vTaskDelay(pdMS_TO_TICKS(5000));
     }
-    xSemaphoreGive(wifiSemaphore); // Отдаем семафор после подключения
-    Serial.println("WiFi Connected");
-    vTaskDelete(NULL);
+}
+
+void taskSendGraphToNextion(void *pvParameters) {
+    while (1) {
+        int scaledTemperature = map(temperature, -40, 40, 0, 255); // Масштабируем
+        int scaledDewPoint = map(dewPoint, -40, 40, 0, 255); 
+        int scaledHumidity = map(humidity, 0, 100, 0, 255);
+        int scaledPressure = map(pressure, 980, 1025, 0, 255);
+
+        sendGraphData("l", 0, scaledTemperature);
+        sendGraphData("1", 1, scaledDewPoint);
+        sendGraphData("4", 0, scaledHumidity);
+        sendGraphData("3", 0, scaledPressure);
+
+        vTaskDelay(pdMS_TO_TICKS(10000));
+    }
 }
 // ----------------------------- Setup -----------------------------
-void setup() {
+void setup()
+{
   Serial.begin(115200);
+  nextion.begin(9600, SERIAL_8N1, RX2, TX2); // Инициализация Serial2
+  Serial.println("ESP32 + Nextion Initialized");
+
   SPI.begin(NRF905_SPI_SCK, NRF905_SPI_MISO, NRF_SPI_MOSI);
 
   // Инициализация файловой системы
-  if (!LittleFS.begin()) {
+  if (!LittleFS.begin())
+  {
     Serial.println("LittleFS Mount Failed");
     return;
   }
@@ -347,42 +347,13 @@ void setup() {
 
   // Подключение к Wi-Fi
   WiFi.begin(ssid, password);
-  while (WiFi.status() != WL_CONNECTED) {
+  while (WiFi.status() != WL_CONNECTED)
+  {
     delay(1000);
     Serial.println("Подключение к Wi-Fi...");
   }
   Serial.println("Wi-Fi подключен");
   Serial.println(WiFi.localIP());
-  wifiSemaphore = xSemaphoreCreateBinary();
-  xSemaphoreTake(wifiSemaphore, 0); // Забираем семафор WiFi
-  
-  timeClient.begin();
-      
-  int ntpRetries = 0;
-  while (!timeClient.update() && ntpRetries < 5) { // Пробуем несколько раз
-        Serial.print("Waiting for NTP time... (Attempt ");
-        Serial.print(ntpRetries + 1);
-        Serial.println(")");
-        delay(1000);
-        ntpRetries++;
-  }
-
-  if (timeClient.isTimeSet()) { // Проверяем, удалось ли установить время
-        initialEpoch = timeClient.getEpochTime();
-        Serial.print("Initial Epoch: ");
-        Serial.println(initialEpoch);
-  } else {
-        Serial.println("Failed to get NTP time after multiple retries. Using millis() as fallback (time will be incorrect).");
-        initialEpoch = millis(); // Плохой вариант, но позволит избежать зависания
-  }
-
-  ntpSemaphore = xSemaphoreCreateBinary();
-  if (ntpSemaphore == NULL) {
-      Serial.println("Failed to create NTP semaphore!");
-      while (1);
-  }
-  xSemaphoreTake(ntpSemaphore, 0); // Забираем семафор сразу после создания
-
 
   // Настройка сервера
   server.on("/", handleRoot);
@@ -391,20 +362,24 @@ void setup() {
   server.begin();
 
   // Инициализация радиомодуля
-  if (!driver.init()) {
+  if (!driver.init())
+  {
     Serial.println("Ошибка инициализации NRF905!");
     while (1)
       ;
   }
 
   // Настройка канала и диапазона
-  driver.setChannel(175, false);  // Канал 175 = 439.9 МГц
+  driver.setChannel(175, false); // Канал 175 = 439.9 МГц
   Serial.println("Приемник настроен и готов к работе!");
 
   // Инициализация BMP280
-  if (!bmp.begin()) {
+  if (!bmp.begin())
+  {
     Serial.println("BMP280 не обнаружен!");
-  } else {
+  }
+  else
+  {
     Serial.println("BMP280 обнаружен");
   }
   bmp.setSampling(Adafruit_BMP280::MODE_FORCED,     /* Operating Mode. */
@@ -416,16 +391,17 @@ void setup() {
 
   // Создание задач FreeRTOS
 
-  xTaskCreate(taskWifiMonitor, "WiFi Monitor", 2048, NULL, 5, NULL);
-  xTaskCreate(taskNTP, "NTP Client", 16384, NULL, 4, NULL);
-  xTaskCreate(taskNRF905, "NRF905 Receiver", 2048, NULL, 1, NULL);
-  xTaskCreate(taskBMP280, "BMP280 Sensor", 2048, NULL, 1, NULL);
-//  xTaskCreate(updateHistoryTask, "Update History Task", 16384, NULL, 2, NULL);
-  xTaskCreate(taskWebServer, "Web Server", 16384, NULL, 3, NULL);
-  xTaskCreate(taskSerialPrint, "Serial Print", 2048, NULL, 5, NULL);
+  xTaskCreate(taskNRF905, "NRF905 Receiver", 2048, NULL, 5, NULL);
+  xTaskCreate(taskBMP280, "BMP280 Sensor", 2048, NULL, 4, NULL);
+  xTaskCreate(taskSendDataToNextion, "Send Data to Nextion Task", 4096, NULL, 2, NULL);
+  xTaskCreate(taskSendGraphToNextion, "Send Graph Data", 4096, NULL, 2, NULL);
+  xTaskCreate(updateHistoryTask, "Update History Task", 16384, NULL, 6, NULL);
+  xTaskCreate(taskWebServer, "Web Server", 16384, NULL, 5, NULL);
+  xTaskCreate(taskSerialPrint, "Serial Print", 2048, NULL, 1, NULL);
 }
 
 // ----------------------------- Main loop -----------------------------
-void loop() {
+void loop()
+{
   // Основной цикл пустой, так как задачи обрабатываются в FreeRTOS
 }
