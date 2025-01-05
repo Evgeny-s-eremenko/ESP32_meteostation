@@ -5,11 +5,17 @@
 #include <WebServer.h>
 #include <SPI.h>
 #include "LittleFS.h"
+#include <HTTPClient.h>
 
 // put function declarations here:
 // ----------------------------- Wi-Fi и сервер -----------------------------
 const char *ssid = "Lucky Devil";
 const char *password = "evgen850517";
+
+// Параметры InfluxDB
+const char* influxDBHost = "192.168.1.214";
+const int influxDBPort = 8086;
+const char* influxDBDatabase = "weather_data";
 
 // ---------------------------- Пины и устройства ----------------------------
 #define NRF905_SPI_SCK 14
@@ -49,13 +55,14 @@ volatile float dewPoint = 0.0f;
 volatile float pressure = 0.0f;
 
 // История значений
-#define MAX_VALUES 50
+#define MAX_VALUES 100
 float temperatureHistory[MAX_VALUES] = {0};
 float humidityHistory[MAX_VALUES] = {0};
 float dewPointHistory[MAX_VALUES] = {0};
 float pressureHistory[MAX_VALUES] = {0};
 unsigned long counterHistory[MAX_VALUES] = {0}; // Массив для счетчика
 int currentIndex = 0;
+
 bool historyFull = false;
 
 unsigned long counter = 0; // Глобальный счетчик
@@ -181,7 +188,49 @@ void handleRoot()
   }
 }
 
+// Функция для отправки данных в InfluxDB (без аргументов)
+void sendDataToInfluxDB() {
+    WiFiClient client;
+    HTTPClient http;
+
+    // Формируем строку InfluxDB Line Protocol
+    String influxDBLine = "weather,location=home ";
+    influxDBLine += "temperature=" + String(temperature, 2) + ",";
+    influxDBLine += "humidity=" + String(humidity, 2) + ",";
+    influxDBLine += "dewPoint=" + String(dewPoint, 2) + ","; // Добавили dewPoint
+    influxDBLine += "pressure=" + String(pressure, 2);
+
+    String url = "http://" + String(influxDBHost) + ":" + String(influxDBPort) + "/write?db=" + String(influxDBDatabase);
+
+    http.begin(client, url);
+    http.addHeader("Content-Type", "application/x-www-form-urlencoded");
+
+    int httpResponseCode = http.POST(influxDBLine);
+
+    if (httpResponseCode > 0) {
+        Serial.print("HTTP Response code: ");
+        Serial.println(httpResponseCode);
+        if (httpResponseCode != 204) {
+          Serial.println(http.getString()); // Выводим ответ сервера для отладки
+        }
+    } else {
+        Serial.print("Error sending data to InfluxDB: ");
+        Serial.println(http.errorToString(httpResponseCode));
+    }
+
+    http.end();
+}
 // --------------------------- Задачи FreeRTOS ---------------------------
+
+void taskSendDataToInfluxDB(void *pvParameters) {
+    while (1) {
+        // Здесь больше не нужно получать данные, они уже в глобальных переменных
+
+        sendDataToInfluxDB(); // Вызываем функцию без аргументов
+
+        vTaskDelay(60000 / portTICK_PERIOD_MS); // Отправка данных раз в минуту
+    }
+}
 
 void taskWebServer(void *pvParameters)
 {
@@ -320,10 +369,10 @@ void taskSendGraphToNextion(void *pvParameters) {
         int scaledHumidity = map(humidity, 0, 100, 0, 255);
         int scaledPressure = map(pressure, 980, 1025, 0, 255);
 
-        sendGraphData("l", 0, scaledTemperature);
-        sendGraphData("1", 1, scaledDewPoint);
+        sendGraphData("1", 0, scaledTemperature);        
         sendGraphData("4", 0, scaledHumidity);
         sendGraphData("3", 0, scaledPressure);
+        sendGraphData("1", 1, scaledDewPoint);
 
         vTaskDelay(pdMS_TO_TICKS(10000));
     }
@@ -395,6 +444,7 @@ void setup()
   xTaskCreate(taskBMP280, "BMP280 Sensor", 2048, NULL, 4, NULL);
   xTaskCreate(taskSendDataToNextion, "Send Data to Nextion Task", 4096, NULL, 2, NULL);
   xTaskCreate(taskSendGraphToNextion, "Send Graph Data", 4096, NULL, 2, NULL);
+  xTaskCreatePinnedToCore(taskSendDataToInfluxDB, "InfluxDBTask", 10000, NULL, 1, NULL, 1);
   xTaskCreate(updateHistoryTask, "Update History Task", 16384, NULL, 6, NULL);
   xTaskCreate(taskWebServer, "Web Server", 16384, NULL, 5, NULL);
   xTaskCreate(taskSerialPrint, "Serial Print", 2048, NULL, 1, NULL);

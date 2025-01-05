@@ -10,9 +10,24 @@
             text-align: center;
         }
 
-        canvas {
-            display: none;
-            margin: 20px auto;
+        .grid-container {
+            display: grid;
+            grid-template-columns: auto auto; /* Два столбца */
+            grid-gap: 10px; /* Расстояние между графиками */
+            margin: 20px auto; /* Центрирование контейнера */
+            width: fit-content; /* Контейнер подстраивается под содержимое */
+        }
+
+        .grid-item {
+            border: 1px solid #ccc;
+            padding: 10px;
+            box-sizing: border-box; /* Важно для корректного расчета ширины */
+             width: 600px;
+            height: 400px;
+        }
+        .grid-item iframe{
+            width: 100%;
+            height: 100%;
         }
     </style>
 </head>
@@ -25,9 +40,16 @@
         <tr><td>Точка росы</td><td id="dewPoint"></td></tr>
         <tr><td>Давление</td><td id="pressure"></td></tr>
     </table>
-    <button id="toggleGraphButton" class="table-header-button">Показать/Скрыть график</button>
-    <canvas id="chart" style="display: none;"></canvas>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <button id="toggleGraphButton" class="table-header-button">Показать/Скрыть графики</button>
+
+    <div id="chartContainer" style="display: none;">
+        <div class="grid-container">
+            <div class="grid-item">
+                <iframe id="temperatureChart" src="http://62.33.134.164:3000/public-dashboards/8540a49c692f4ba7841a2228b102d203" width="500" height="900" frameborder="0"></iframe>
+            </div>
+        </div>
+    </div>
+
     <script src="/script.js"></script>
 </body>
 </html>
