@@ -1,0 +1,188 @@
+﻿<!DOCTYPE html>
+<html>
+<meta charset='UTF-8'>
+<head>
+    <title>ESP32 Dashboard</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            color: #242749;
+            background-color: #414f8a;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin: 0;
+            padding: 20px;
+        }
+
+        .container {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            grid-gap: 20px;
+            max-width: 800px;
+        }
+
+        .widget-title {
+            grid-column: span 1;
+            text-align: center;
+            font-size: 24px;
+            margin-bottom: 10px;
+        }
+
+        .widget {
+            background-color: #242749;
+            color: #101120;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 2px 3px 1px rgba(0, 0, 0, 0.185);
+            text-align: center;
+        }
+
+        .pressure-widget {
+            grid-column: span 2;
+            background-color: #242749;
+            color: #101120;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 2px 3px 1px rgba(0, 0, 0, 0.185);
+            text-align: center;
+        }
+
+        .widget h2 {
+            margin-top: 0;
+        }
+
+        .value {
+            font-size: 24px;
+            font-weight: bold;
+            margin-top: 10px;
+        }
+
+        .label {
+            color: #88888893;
+            margin-bottom: 10px;
+        }
+
+        #toggleGraphButton {
+            grid-column: span 2;
+            cursor: pointer;
+            border: none;
+            padding: 10px 20px;
+        }
+
+        #chartContainer {
+            grid-column: span 2;
+            margin-top: 20px;
+        }
+
+        iframe {
+            background-color: #242749;
+            color: #101120;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 2px 3px 1px rgba(0, 0, 0, 0.185);
+        }
+
+        /* Стили для индикатора */
+        .progress-bar {
+            width: 100%;
+            height: 20px;
+            background-color: #979797e5;
+            border-radius: 10px;
+            overflow: hidden;
+            margin-top: 10px;
+        }
+
+        .progress-bar-fill {
+            height: 100%;
+            background-color: #44c72a9d;
+            border-radius: 10px;
+            transition: width 0.3s ease;
+        }
+
+        .progress-bar-fill.low {
+            background-color: #1114c4ab;
+        }
+
+        .progress-bar-fill.medium {
+            background-color: #44c72a9d;
+        }
+
+        .progress-bar-fill.high {
+            background-color: #d64545a1;
+        }
+    </style>
+</head>
+<body>
+    <h1>Погодная станция</h1>
+    <div class="container">
+        <div class="widget-title">Улица</div>
+        <div class="widget-title">Дом</div>
+        <div class="widget">
+            <h2>Температура</h2>
+            <div class="value" id="temperature"></div>
+            <div class="label">Текущая температура</div>
+            <div class="progress-bar">
+                <div class="progress-bar-fill" id="temperatureBar"></div>
+            </div>
+        </div>
+        <div class="widget">
+            <h2>Температура</h2>
+            <div class="value" id="homeTemp"></div>
+            <div class="label">Текущая температура</div>
+            <div class="progress-bar">
+                <div class="progress-bar-fill" id="homeTempBar"></div>
+            </div>
+        </div>
+        <div class="widget">
+            <h2>Влажность</h2>
+            <div class="value" id="humidity"></div>
+            <div class="label">Относительная влажность</div>
+            <div class="progress-bar">
+                <div class="progress-bar-fill" id="humidityBar"></div>
+            </div>
+        </div>
+        <div class="widget">
+            <h2>Влажность</h2>
+            <div class="value" id="homeHum"></div>
+            <div class="label">Относительная влажность</div>
+            <div class="progress-bar">
+                <div class="progress-bar-fill" id="homeHumBar"></div>
+            </div>
+        </div>
+        <div class="widget">
+            <h2>Точка росы</h2>
+            <div class="value" id="dewPoint"></div>
+            <div class="label">Температура точки росы</div>
+            <div class="progress-bar">
+                <div class="progress-bar-fill" id="dewPointBar"></div>
+            </div>
+        </div>
+        <div class="widget">
+            <h2>Точка росы</h2>
+            <div class="value" id="homeDP"></div>
+            <div class="label">Температура точки росы</div>
+            <div class="progress-bar">
+                <div class="progress-bar-fill" id="homeDPBar"></div>
+            </div>
+        </div>
+        <div class="pressure-widget">
+            <h2>Давление</h2>
+            <div class="value" id="pressure"></div>
+            <div class="label">Атмосферное давление</div>
+            <div class="progress-bar">
+                <div class="progress-bar-fill" id="pressureBar"></div>
+            </div>
+        </div>
+        <button id="toggleGraphButton" class="widget">Показать/скрыть график</button>
+        <div id="chartContainer" style="display: none;">
+            <div class="grid-container">
+                <div class="grid-item">
+                    <iframe id="temperatureChart" src="http://62.33.134.164:3000/public-dashboards/8540a49c692f4ba7841a2228b102d203" alt="Graph" width="500" height="900" frameborder="0"></iframe>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script src="/script.js"></script>
+</body>
+</html>

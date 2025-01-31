@@ -1,8 +1,9 @@
 #include <Arduino.h>
 #include <RH_NRF905.h>
-#include <Adafruit_BMP280.h>
+#include <Adafruit_BME280.h>
 #include <WiFi.h>
 #include <WebServer.h>
+#include <ArduinoJson.h>
 #include <SPI.h>
 #include "LittleFS.h"
 #include <HTTPClient.h>
@@ -29,7 +30,8 @@ HardwareSerial nextion(2); // Используем Serial2 для связи с 
 #define RX2 16  // RX пин ESP32
 #define TX2 17  // TX пин ESP32
 
-Adafruit_BMP280 bmp;                                  // Датчик давления BMP280
+
+Adafruit_BME280 bme;                                  // Датчик давления BMP280
 RH_NRF905 driver(NRF905_CE, NRF905_TX_EN, NRF905_CS); // Радиомодуль nRF905
 WebServer server(80);                                 // Веб-сервер на порту 80
 
@@ -43,9 +45,7 @@ void handleRoot();
 void taskWebServer(void *pvParameters);
 void taskNRF905(void *pvParameters);
 void taskBMP280(void *pvParameters);
-void updateHistoryTask(void *pvParameters);
 void taskSerialPrint(void *pvParameters);
-void addValue(float *history, float value);
 float calculateDewPoint(float temperature, float humidity);
 
 // --------------------------- Глобальные переменные ---------------------------
@@ -53,25 +53,9 @@ volatile float temperature = 0.0f;
 volatile float humidity = 0.0f;
 volatile float dewPoint = 0.0f;
 volatile float pressure = 0.0f;
-
-// История значений
-#define MAX_VALUES 100
-float temperatureHistory[MAX_VALUES] = {0};
-float humidityHistory[MAX_VALUES] = {0};
-float dewPointHistory[MAX_VALUES] = {0};
-float pressureHistory[MAX_VALUES] = {0};
-unsigned long counterHistory[MAX_VALUES] = {0}; // Массив для счетчика
-int currentIndex = 0;
-
-bool historyFull = false;
-
-unsigned long counter = 0; // Глобальный счетчик
-
-// -------------------------- Функции для работы с историей --------------------------
-void addValue(float *history, float value)
-{
-  history[currentIndex] = value;
-}
+volatile float homeTemp = 0.0f;
+volatile float homeHum = 0.0f;
+volatile float homeDP = 0.0f;
 
 // -------------------------- Функция расчета точки росы -----------------------------
 float calculateDewPoint(float temperature, float humidity)
@@ -82,96 +66,36 @@ float calculateDewPoint(float temperature, float humidity)
   return (b * alpha) / (a - alpha);
 }
 
-// ---------------------------- Обработчики HTTP запросов -----------------------------
-void handleGraphData()
+float calculatehomeDP(float homeTemp, float homeHum)
 {
-  char json[4096];
-  String jsonString = "{";
+  float a = 17.27;
+  float b = 237.7;
+  float alpha = ((a * homeTemp) / (b + homeHum)) + log(homeHum / 100.0);
+  return (b * alpha) / (a - alpha);
+}
 
-  int dataCount = 0;
-  if (historyFull)
-  {
-    dataCount = MAX_VALUES;
-  }
-  else
-  {
-    dataCount = currentIndex;
-  }
+// ---------------------------- Обработчики HTTP запросов -----------------------------
+void handleGraphData() {
+  DynamicJsonDocument doc(256); // Размер зависит от количества данных
+  doc["temperature"] = temperature;
+  doc["humidity"] = humidity;
+  doc["dewPoint"] = dewPoint;
+  doc["pressure"] = pressure;
+  doc["homeTemp"] = homeTemp;
+  doc["homeHum"] = homeHum;
+  doc["dewPoint"] = dewPoint;
+  doc["homeDP"] = homeDP;
 
-  // Отправляем данные только если есть что отправлять
-  if (dataCount > 0)
-  {
-    jsonString += "\"temperature\":[";
-    for (int i = 0; i < dataCount; i++)
-    {
-      int index = (currentIndex - dataCount + i + MAX_VALUES) % MAX_VALUES;
-      jsonString += String(temperatureHistory[index], 2);
-      if (i < dataCount - 1)
-        jsonString += ",";
-    }
-    jsonString += "],";
-
-    jsonString += "\"humidity\":[";
-    for (int i = 0; i < dataCount; i++)
-    {
-      int index = (currentIndex - dataCount + i + MAX_VALUES) % MAX_VALUES;
-      jsonString += String(humidityHistory[index], 2);
-      if (i < dataCount - 1)
-        jsonString += ",";
-    }
-    jsonString += "],";
-
-    jsonString += "\"dewPoint\":[";
-    for (int i = 0; i < dataCount; i++)
-    {
-      int index = (currentIndex - dataCount + i + MAX_VALUES) % MAX_VALUES;
-      jsonString += String(dewPointHistory[index], 2);
-      if (i < dataCount - 1)
-        jsonString += ",";
-    }
-    jsonString += "],";
-
-    jsonString += "\"pressure\":[";
-    for (int i = 0; i < dataCount; i++)
-    {
-      int index = (currentIndex - dataCount + i + MAX_VALUES) % MAX_VALUES;
-      jsonString += String(pressureHistory[index], 2);
-      if (i < dataCount - 1)
-        jsonString += ",";
-    }
-    jsonString += "],";
-
-    jsonString += "\"counter\":["; // Отправляем значения счетчика
-    for (int i = 0; i < dataCount; i++)
-    {
-      int index = (currentIndex - dataCount + i + MAX_VALUES) % MAX_VALUES;
-      jsonString += String(counterHistory[index]);
-      if (i < dataCount - 1)
-        jsonString += ",";
-    }
-    jsonString += "]";
-
-    jsonString += "}";
-  }
-  else
-  {
-    jsonString += "\"temperature\":[],";
-    jsonString += "\"humidity\":[],";
-    jsonString += "\"dewPoint\":[],";
-    jsonString += "\"pressure\":[],";
-    jsonString += "\"time\":[]";
-    jsonString += "}";
-  }
-
-  jsonString.toCharArray(json, sizeof(json));
+  String json;
+  serializeJson(doc, json);
   server.send(200, "application/json", json);
 }
 
 void handleRoot()
 {
-  if (LittleFS.exists("/index.html"))
+  if (LittleFS.exists("/HTMLPage1.html"))
   {
-    File file = LittleFS.open("/index.html", "r");
+    File file = LittleFS.open("/HTMLPage1.html", "r");
     if (file)
     {
       server.streamFile(file, "text/html");
@@ -189,36 +113,55 @@ void handleRoot()
 }
 
 // Функция для отправки данных в InfluxDB (без аргументов)
-void sendDataToInfluxDB() {
-    WiFiClient client;
-    HTTPClient http;
+void sendDataToInfluxDB()
+{
+  WiFiClient client;
+  HTTPClient http;
 
-    // Формируем строку InfluxDB Line Protocol
-    String influxDBLine = "weather,location=home ";
-    influxDBLine += "temperature=" + String(temperature, 2) + ",";
-    influxDBLine += "humidity=" + String(humidity, 2) + ",";
-    influxDBLine += "dewPoint=" + String(dewPoint, 2) + ","; // Добавили dewPoint
-    influxDBLine += "pressure=" + String(pressure, 2);
-
-    String url = "http://" + String(influxDBHost) + ":" + String(influxDBPort) + "/write?db=" + String(influxDBDatabase);
-
-    http.begin(client, url);
-    http.addHeader("Content-Type", "application/x-www-form-urlencoded");
-
-    int httpResponseCode = http.POST(influxDBLine);
-
-    if (httpResponseCode > 0) {
-        Serial.print("HTTP Response code: ");
-        Serial.println(httpResponseCode);
-        if (httpResponseCode != 204) {
-          Serial.println(http.getString()); // Выводим ответ сервера для отладки
-        }
-    } else {
-        Serial.print("Error sending data to InfluxDB: ");
-        Serial.println(http.errorToString(httpResponseCode));
+  // Формируем строку InfluxDB Line Protocol
+  String influxDBLine = "weather,location=home ";
+    if (temperature != 0.0f)
+    {
+      influxDBLine += "temperature=" + String(temperature, 2) + ",";
     }
 
-    http.end();
+    if (humidity != 0.0f)
+    {
+      influxDBLine += "humidity=" + String(humidity, 2) + ",";
+    }
+
+    if (dewPoint != 0.0f)
+    {
+      influxDBLine += "dewPoint=" + String(dewPoint, 2) + ",";
+    }
+
+    if (pressure != 0.0f)
+    {
+      influxDBLine += "pressure=" + String(pressure, 2);
+    }
+  String url = "http://" + String(influxDBHost) + ":" + String(influxDBPort) + "/write?db=" + String(influxDBDatabase);
+
+  http.begin(client, url);
+  http.addHeader("Content-Type", "application/x-www-form-urlencoded");
+
+  int httpResponseCode = http.POST(influxDBLine);
+
+  if (httpResponseCode > 0)
+  {
+    Serial.print("HTTP Response code: ");
+    Serial.println(httpResponseCode);
+    if (httpResponseCode != 204)
+    {
+      Serial.println(http.getString()); // Выводим ответ сервера для отладки
+    }
+  }
+  else
+  {
+    Serial.print("Error sending data to InfluxDB: ");
+    Serial.println(http.errorToString(httpResponseCode));
+  }
+
+  http.end();
 }
 // --------------------------- Задачи FreeRTOS ---------------------------
 
@@ -270,38 +213,14 @@ void taskBMP280(void *pvParameters)
 {
   while (true)
   {
-    if (bmp.begin())
     {
-      pressure = bmp.readPressure() / 100.0f; // Получаем давление
+      pressure = bme.readPressure() / 100.0f; // Получаем давление
+      homeTemp = bme.readTemperature();
+      homeHum = bme.readHumidity();
+      vTaskDelay(70 / portTICK_PERIOD_MS);
+      homeDP = calculatehomeDP(homeTemp, homeHum);
     }
-    else
-    {
-      pressure = 0.0f; // Если ошибка, устанавливаем 0
-    }
-    vTaskDelay(5000 / portTICK_PERIOD_MS); // Задержка 5 секунд
-  }
-}
 
-void updateHistoryTask(void *pvParameters)
-{
-  while (true)
-  {
-    if (temperature != 0.0f && humidity != 0.0f && pressure != 0.0f)
-    {
-      addValue(temperatureHistory, temperature);
-      addValue(humidityHistory, humidity);
-      addValue(dewPointHistory, dewPoint);
-      addValue(pressureHistory, pressure);
-
-      counter++;                              // Увеличиваем счетчик
-      counterHistory[currentIndex] = counter; // Сохраняем значение счетчика
-
-      currentIndex = (currentIndex + 1) % MAX_VALUES;
-      if (currentIndex == 0 && !historyFull)
-      {
-        historyFull = true;
-      }
-    }
     vTaskDelay(5000 / portTICK_PERIOD_MS); // Задержка 5 секунд
   }
 }
@@ -310,6 +229,15 @@ void taskSerialPrint(void *pvParameters)
 {
   while (true)
   {
+    Serial.print("Температура дома: ");
+    Serial.print(homeTemp);
+    Serial.println(" °C");
+    Serial.print("Влажность дома: ");
+    Serial.print(homeHum);
+    Serial.println(" %");
+    Serial.print("Точка росы дома: ");
+    Serial.print(homeDP);
+    Serial.println(" °C");
     Serial.print("Температура: ");
     Serial.print(temperature);
     Serial.println(" °C");
@@ -322,7 +250,7 @@ void taskSerialPrint(void *pvParameters)
     Serial.print("Давление: ");
     Serial.print(pressure);
     Serial.println(" hPa");
-    vTaskDelay(60000 / portTICK_PERIOD_MS);
+    vTaskDelay(10000 / portTICK_PERIOD_MS);
   }
 }
 
@@ -423,7 +351,7 @@ void setup()
   Serial.println("Приемник настроен и готов к работе!");
 
   // Инициализация BMP280
-  if (!bmp.begin())
+  if (!bme.begin(0x76))
   {
     Serial.println("BMP280 не обнаружен!");
   }
@@ -431,12 +359,13 @@ void setup()
   {
     Serial.println("BMP280 обнаружен");
   }
-  bmp.setSampling(Adafruit_BMP280::MODE_FORCED,     /* Operating Mode. */
-                  Adafruit_BMP280::SAMPLING_X2,     /* Temp. oversampling */
-                  Adafruit_BMP280::SAMPLING_X16,    /* Pressure oversampling */
-                  Adafruit_BMP280::FILTER_X16,      /* Filtering. */
-                  Adafruit_BMP280::STANDBY_MS_500); /* Standby time. */
-  Serial.println("BMP280 in forced mode");
+  // bme.setSampling(Adafruit_BME280::MODE_FORCED,     /* Operating Mode. */
+  //                Adafruit_BME280::SAMPLING_X1,     /* Temp. oversampling */
+  //                Adafruit_BME280::SAMPLING_X8,    /* Pressure oversampling */
+  //                Adafruit_BME280::SAMPLING_X1,    /* Humidity oversampling */
+  //                Adafruit_BME280::FILTER_X8,      /* Filtering. */
+  //                Adafruit_BME280::STANDBY_MS_500); /* Standby time. */
+  // Serial.println("BMP280 in forced mode");
 
   // Создание задач FreeRTOS
 
@@ -445,7 +374,6 @@ void setup()
   xTaskCreate(taskSendDataToNextion, "Send Data to Nextion Task", 4096, NULL, 2, NULL);
   xTaskCreate(taskSendGraphToNextion, "Send Graph Data", 4096, NULL, 2, NULL);
   xTaskCreatePinnedToCore(taskSendDataToInfluxDB, "InfluxDBTask", 10000, NULL, 1, NULL, 1);
-  xTaskCreate(updateHistoryTask, "Update History Task", 16384, NULL, 6, NULL);
   xTaskCreate(taskWebServer, "Web Server", 16384, NULL, 5, NULL);
   xTaskCreate(taskSerialPrint, "Serial Print", 2048, NULL, 1, NULL);
 }
