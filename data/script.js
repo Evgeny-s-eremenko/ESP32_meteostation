@@ -1,18 +1,53 @@
-function updateTable(data) {
-    if (!data || !data.temperature || !data.humidity || !data.dewPoint || !data.pressure) {
-        console.warn("Некорректные данные для обновления таблицы");
-        document.getElementById("temperature").textContent = "Данные отсутствуют";
-        document.getElementById("humidity").textContent = "Данные отсутствуют";
-        document.getElementById("dewPoint").textContent = "Данные отсутствуют";
-        document.getElementById("pressure").textContent = "Данные отсутствуют";
+function updateIndicator(value, min, max, elementId) {
+    const progressBar = document.getElementById(elementId);
+    if (!progressBar) {
+        console.warn(`Элемент с ID ${elementId} не найден.`);
         return;
     }
 
-    document.getElementById("temperature").textContent = data.temperature[data.temperature.length - 1].toFixed(2) + " °C"; // Последнее значение
-    document.getElementById("humidity").textContent = data.humidity[data.humidity.length - 1].toFixed(2) + " %";
-    document.getElementById("dewPoint").textContent = data.dewPoint[data.dewPoint.length - 1].toFixed(2) + " °C";
-    document.getElementById("pressure").textContent = data.pressure[data.pressure.length - 1].toFixed(2) + " hPa";
+    const percentage = ((value - min) / (max - min)) * 100;
+    progressBar.style.width = `${percentage}%`;
+
+    // Изменяем цвет в зависимости от значения
+    if (percentage < 33) {
+        progressBar.className = 'progress-bar-fill low';
+    } else if (percentage < 66) {
+        progressBar.className = 'progress-bar-fill medium';
+    } else {
+        progressBar.className = 'progress-bar-fill high';
+    }
 }
+function updateTable(data) {
+    if (!data || data.temperature === undefined || data.humidity === undefined || 
+        data.dewPoint === undefined || data.pressure === undefined || data.homeTemp === undefined || data.homeHum === undefined || data.homeDP === undefined) {
+      console.warn("Некорректные данные для обновления таблицы");
+      document.getElementById("temperature").textContent = "Данные отсутствуют";
+      document.getElementById("humidity").textContent = "Данные отсутствуют";
+      document.getElementById("dewPoint").textContent = "Данные отсутствуют";
+      document.getElementById("pressure").textContent = "Данные отсутствуют";
+      document.getElementById("homeTemp").textContent = "Данные отсутствуют";
+      document.getElementById("homeHum").textContent = "Данные отсутствуют";
+      document.getElementById("homeDP").textContent = "Данные отсутствуют";
+      return;
+    }
+  
+    document.getElementById("temperature").textContent = data.temperature.toFixed(2) + " °C";
+    document.getElementById("humidity").textContent = data.humidity.toFixed(2) + " %";
+    document.getElementById("dewPoint").textContent = data.dewPoint.toFixed(2) + " °C";
+    document.getElementById("pressure").textContent = data.pressure.toFixed(2) + " hPa";
+    document.getElementById("homeTemp").textContent = data.homeTemp.toFixed(2) + " °C";
+    document.getElementById("homeHum").textContent = data.homeHum.toFixed(2) + " %";
+    document.getElementById("homeDP").textContent = data.homeDP.toFixed(2) + " °C";
+
+    // Обновляем индикаторы
+    updateIndicator(data.temperature, -35, 35, 'temperatureBar'); // Температура на улице
+    updateIndicator(data.homeTemp, 10, 35, 'homeTempBar'); // Температура дома
+    updateIndicator(data.humidity, 0, 100, 'humidityBar'); // Влажность на улице
+    updateIndicator(data.homeHum, 0, 100, 'homeHumBar'); // Влажность дома
+    updateIndicator(data.dewPoint, -35, 30, 'dewPointBar'); // Точка росы на улице
+    updateIndicator(data.homeDP, -20, 30, 'homeDPBar'); // Точка росы дома
+    updateIndicator(data.pressure, 960, 1040, 'pressureBar'); // Давление
+  }
 
 function fetchDataAndUpdate() {
     fetch('/graph-data')
@@ -23,7 +58,7 @@ function fetchDataAndUpdate() {
             return response.json();
         })
         .then(data => {
-            if (data && data.temperature && data.humidity && data.dewPoint && data.pressure) {
+            if (data && data.temperature && data.humidity && data.dewPoint && data.pressure && data.homeTemp && data.homeHum && data.homeDP) {
                 updateTable(data); // Обновляем только таблицу
             } else {
                 console.warn("Данные отсутствуют или некорректны.");
