@@ -1,6 +1,6 @@
 #include <Arduino.h>
 #include <RH_NRF905.h>
-#include <Adafruit_BMP280.h>
+#include <Adafruit_BME280.h>
 #include <WiFi.h>
 #include <WebServer.h>
 #include <SPI.h>
@@ -29,7 +29,8 @@ HardwareSerial nextion(2); // Используем Serial2 для связи с 
 #define RX2 16  // RX пин ESP32
 #define TX2 17  // TX пин ESP32
 
-Adafruit_BMP280 bmp;                                  // Датчик давления BMP280
+
+Adafruit_BME280 bme;                                  // Датчик давления BMP280
 RH_NRF905 driver(NRF905_CE, NRF905_TX_EN, NRF905_CS); // Радиомодуль nRF905
 WebServer server(80);                                 // Веб-сервер на порту 80
 
@@ -53,6 +54,9 @@ volatile float temperature = 0.0f;
 volatile float humidity = 0.0f;
 volatile float dewPoint = 0.0f;
 volatile float pressure = 0.0f;
+volatile float homeTemp = 0.0f;
+volatile float homeHum = 0.0f;
+volatile float homeDP = 0.0f;
 
 // История значений
 #define MAX_VALUES 100
@@ -79,6 +83,14 @@ float calculateDewPoint(float temperature, float humidity)
   float a = 17.27;
   float b = 237.7;
   float alpha = ((a * temperature) / (b + temperature)) + log(humidity / 100.0);
+  return (b * alpha) / (a - alpha);
+}
+
+float calculatehomeDP(float homeTemp, float homeHum)
+{
+  float a = 17.27;
+  float b = 237.7;
+  float alpha = ((a * homeTemp) / (b + homeHum)) + log(homeHum / 100.0);
   return (b * alpha) / (a - alpha);
 }
 
@@ -169,9 +181,9 @@ void handleGraphData()
 
 void handleRoot()
 {
-  if (LittleFS.exists("/index.html"))
+  if (LittleFS.exists("/HTMLPage1.html"))
   {
-    File file = LittleFS.open("/index.html", "r");
+    File file = LittleFS.open("/HTMLPage1.html", "r");
     if (file)
     {
       server.streamFile(file, "text/html");
@@ -270,15 +282,14 @@ void taskBMP280(void *pvParameters)
 {
   while (true)
   {
-    if (bmp.begin())
     {
-      pressure = bmp.readPressure() / 100.0f; // Получаем давление
+      pressure = bme.readPressure() / 100.0f; // Получаем давление
+      homeTemp = bme.readTemperature();
+      homeHum = bme.readHumidity();
+      homeDP = calculatehomeDP(homeTemp, homeHum);
     }
-    else
-    {
-      pressure = 0.0f; // Если ошибка, устанавливаем 0
-    }
-    vTaskDelay(5000 / portTICK_PERIOD_MS); // Задержка 5 секунд
+
+    vTaskDelay(2000 / portTICK_PERIOD_MS); // Задержка 5 секунд
   }
 }
 
@@ -310,6 +321,15 @@ void taskSerialPrint(void *pvParameters)
 {
   while (true)
   {
+    Serial.print("Температура дома: ");
+    Serial.print(homeTemp);
+    Serial.println(" °C");
+    Serial.print("Влажность дома: ");
+    Serial.print(homeHum);
+    Serial.println(" %");
+    Serial.print("Точка росы дома: ");
+    Serial.print(homeDP);
+    Serial.println(" °C");
     Serial.print("Температура: ");
     Serial.print(temperature);
     Serial.println(" °C");
@@ -322,7 +342,7 @@ void taskSerialPrint(void *pvParameters)
     Serial.print("Давление: ");
     Serial.print(pressure);
     Serial.println(" hPa");
-    vTaskDelay(60000 / portTICK_PERIOD_MS);
+    vTaskDelay(10000 / portTICK_PERIOD_MS);
   }
 }
 
@@ -423,7 +443,7 @@ void setup()
   Serial.println("Приемник настроен и готов к работе!");
 
   // Инициализация BMP280
-  if (!bmp.begin())
+  if (!bme.begin(0x76))
   {
     Serial.println("BMP280 не обнаружен!");
   }
@@ -431,12 +451,13 @@ void setup()
   {
     Serial.println("BMP280 обнаружен");
   }
-  bmp.setSampling(Adafruit_BMP280::MODE_FORCED,     /* Operating Mode. */
-                  Adafruit_BMP280::SAMPLING_X2,     /* Temp. oversampling */
-                  Adafruit_BMP280::SAMPLING_X16,    /* Pressure oversampling */
-                  Adafruit_BMP280::FILTER_X16,      /* Filtering. */
-                  Adafruit_BMP280::STANDBY_MS_500); /* Standby time. */
-  Serial.println("BMP280 in forced mode");
+  //bme.setSampling(Adafruit_BME280::MODE_FORCED,     /* Operating Mode. */
+  //                Adafruit_BME280::SAMPLING_X2,     /* Temp. oversampling */
+  //                Adafruit_BME280::SAMPLING_X16,    /* Pressure oversampling */
+  //                Adafruit_BME280::SAMPLING_NONE,    /* Humidity oversampling */
+  //                Adafruit_BME280::FILTER_X16,      /* Filtering. */
+  //                Adafruit_BME280::STANDBY_MS_1000); /* Standby time. */
+  //Serial.println("BMP280 in forced mode");
 
   // Создание задач FreeRTOS
 
