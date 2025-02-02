@@ -1,7 +1,6 @@
 #include <Arduino.h>
 #include <RH_NRF905.h>
 #include <Adafruit_BME280.h>
-#include <Adafruit_BME280.h>
 #include <WiFi.h>
 #include <WebServer.h>
 #include <ArduinoJson.h>

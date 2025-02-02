@@ -1,22 +1,21 @@
+function getColor(value, min, max) {
+    const t = (value - min) / (max - min);
+    // d3.interpolateRdYlBu выдаёт цвет при t=0 красный, t=1 синий,
+    // поэтому, чтобы получить синий при низком значении и красный при высоком, переворачиваем t:
+    return d3.interpolateRdYlBu(1 - t);
+}
+
 function updateIndicator(value, min, max, elementId) {
     const progressBar = document.getElementById(elementId);
     if (!progressBar) {
-        console.warn(`Элемент с ID ${elementId} не найден.`);
-        return;
+      console.warn(`Элемент с ID ${elementId} не найден.`);
+      return;
     }
-
     const percentage = ((value - min) / (max - min)) * 100;
     progressBar.style.width = `${percentage}%`;
-
-    // Изменяем цвет в зависимости от значения
-    if (percentage < 33) {
-        progressBar.className = 'progress-bar-fill low';
-    } else if (percentage < 66) {
-        progressBar.className = 'progress-bar-fill medium';
-    } else {
-        progressBar.className = 'progress-bar-fill high';
-    }
+    progressBar.style.backgroundColor = getColor(value, min, max);
 }
+
 function updateTable(data) {
     if (!data || data.temperature === undefined || data.humidity === undefined || 
         data.dewPoint === undefined || data.pressure === undefined || data.homeTemp === undefined || data.homeHum === undefined || data.homeDP === undefined) {
