@@ -6,7 +6,7 @@
     <style>
         body {
             font-family: sans-serif;
-            color: #242749;
+            color: #141629;
             background-color: #414f8a;
             display: flex;
             flex-direction: column;
@@ -31,7 +31,7 @@
 
         .widget {
             background-color: #242749;
-            color: #101120;
+            color: #000000;
             border-radius: 10px;
             padding: 20px;
             box-shadow: 0 2px 3px 1px rgba(0, 0, 0, 0.185);
@@ -59,7 +59,7 @@
         }
 
         .label {
-            color: #88888893;
+            color: #979797e5;
             margin-bottom: 10px;
         }
 
@@ -88,28 +88,16 @@
             width: 100%;
             height: 20px;
             background-color: #979797e5;
-            border-radius: 10px;
+            border-radius: 5px;
             overflow: hidden;
+            box-shadow: inset 2px 3px 1px 0px rgba(0, 0, 0, 0.185);
             margin-top: 10px;
         }
 
         .progress-bar-fill {
             height: 100%;
-            background-color: #44c72a9d;
-            border-radius: 10px;
-            transition: width 0.3s ease;
-        }
-
-        .progress-bar-fill.low {
-            background-color: #1114c4ab;
-        }
-
-        .progress-bar-fill.medium {
-            background-color: #44c72a9d;
-        }
-
-        .progress-bar-fill.high {
-            background-color: #d64545a1;
+            border-radius: 5px;
+            transition: width 0.3s ease, background-color 0.3s ease; /* Плавное изменение ширины и цвета */
         }
     </style>
 </head>
@@ -183,6 +171,7 @@
             </div>
         </div>
     </div>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
     <script src="/script.js"></script>
 </body>
 </html>
