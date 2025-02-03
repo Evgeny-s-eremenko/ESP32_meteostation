@@ -12,6 +12,8 @@
 // ----------------------------- Wi-Fi и сервер -----------------------------
 const char *ssid = "REMOVED";
 const char *password = "REMOVED";
+const char* http_username = "evgen";  // Логин для доступа
+const char* http_password = "REMOVED";   // Пароль для доступа
 
 // Параметры InfluxDB
 const char* influxDBHost = "REMOVED";
@@ -93,9 +95,9 @@ void handleGraphData() {
 
 void handleRoot()
 {
-  if (LittleFS.exists("/HTMLPage1.html"))
+  if (LittleFS.exists("/index.html"))
   {
-    File file = LittleFS.open("/HTMLPage1.html", "r");
+    File file = LittleFS.open("/index.html", "r");
     if (file)
     {
       server.streamFile(file, "text/html");
@@ -110,6 +112,73 @@ void handleRoot()
   {
     server.send(404, "text/plain", "index.html not found");
   }
+}
+
+void handleAdmin() {
+    if (!server.authenticate(http_username, http_password)) {
+        return server.requestAuthentication();
+    }
+      if (LittleFS.exists("/REMOVED.html"))
+  {
+    File file = LittleFS.open("/REMOVED.html", "r");
+    if (file)
+    {
+      server.streamFile(file, "text/html");
+      file.close();
+    }
+    else
+    {
+      server.send(500, "text/plain", "Failed to open REMOVED.html");
+    }
+  }
+  else
+  {
+    server.send(404, "text/plain", "REMOVED.html not found");
+  }
+}
+
+void handleRestart() {
+    server.send(200, "text/plain", "ESP32 is restarting...");
+    delay(1000);
+    ESP.restart();
+}
+
+String getSystemInfo() {
+  String info = "";
+  
+  // Время работы в секундах (uptime)
+  unsigned long uptime = millis() / 1000;
+  info += "Uptime: " + String(uptime) + " seconds\n";
+  
+  // WiFi RSSI
+  info += "WiFi RSSI: " + String(WiFi.RSSI()) + " dBm\n";
+  
+  // Свободная heap-память
+  info += "Free Heap: " + String(ESP.getFreeHeap()) + " bytes\n";
+  
+  // Свободный объем стека для текущей задачи
+  info += "Current task free stack: " + String(uxTaskGetStackHighWaterMark(NULL)) + " bytes\n";
+  
+  // Замечание: Измерение температуры процессора на ESP32 стандартными средствами отсутствует,
+  // поэтому это поле можно добавить, если реализуете внешнее измерение.
+  
+  return info;
+}
+
+// Функция получения статуса датчика BME280 по I2C
+String getBME280Status() {
+  String status = "";
+  // Пытаемся прочитать с датчика — если не найден, выводим сообщение об ошибке
+  if (!bme.begin(0x76)) {
+    status = "BME280: Not Found";
+  } else {
+    status = "BME280: OK\n";
+    // Дополнительно можно вывести текущие показания
+    status += "Temp: " + String(bme.readTemperature(), 2) + " °C\n";
+    status += "Humidity: " + String(bme.readHumidity(), 2) + " %\n";
+    status += "Pressure: " + String(bme.readPressure() / 100.0F, 2) + " hPa\n";
+  }
+  return status;
 }
 
 // Функция для отправки данных в InfluxDB (без аргументов)
@@ -334,6 +403,8 @@ void setup()
 
   // Настройка сервера
   server.on("/", handleRoot);
+  server.on("/REMOVED", handleAdmin);
+  server.on("/restart", handleRestart);
   server.on("/graph-data", handleGraphData);
   server.serveStatic("/", LittleFS, "/");
   server.begin();
