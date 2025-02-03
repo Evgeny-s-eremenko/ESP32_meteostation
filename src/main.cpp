@@ -181,6 +181,57 @@ String getBME280Status() {
   return status;
 }
 
+String getNRF905Status() {
+    String status = "";
+    uint8_t config[10];
+    
+    // 1. Чтение регистров. Возвращаемое значение — статусный регистр!
+    uint8_t status_reg = driver.spiBurstReadRegister(RH_NRF905_REG_W_CONFIG, config, 10);
+    
+    // 2. Вывод расшифрованного статуса
+    status += "Status Register: 0x" + String(status_reg, HEX) + "\n";
+    status += "Decoded Status:\n";
+    status += (status_reg & 0x20) ? "[DR] Data Ready\n" : "";
+    status += (status_reg & 0x80) ? "[AM] Address Match\n" : "";
+    status += (status_reg & 0x40) ? "[CRC_ERR] Error\n" : "[CRC_OK]\n";
+
+    // 3. Вывод конфигурации (остается без изменений)
+    status += "Channel: " + String(config[0]) + "\n";
+    
+    uint8_t band_bit = config[1] & RH_NRF905_CONFIG_1_HFREQ_PLL;
+    uint32_t freq = band_bit 
+        ? 844800000 + (config[0] * 2000000) 
+        : 422400000 + (config[0] * 100000);
+    status += "Frequency: " + String(freq/1000000.0, 3) + " MHz\n";
+
+    uint8_t pwr = (config[1] & RH_NRF905_CONFIG_1_PA_PWR) >> 2;
+    const char* pwr_str[] = {"-10 dBm", "-2 dBm", "+6 dBm", "+10 dBm"};
+    status += "TX Power: " + String(pwr_str[pwr]) + "\n";
+
+    status += "RAW Config: ";
+    for (int i = 0; i < 10; i++) {
+        status += String(config[i], HEX) + " ";
+    }
+    status += "\n";
+
+    return status;
+}
+
+void handleSysInfo() {
+  String info = getSystemInfo();
+  server.send(200, "text/plain", info);
+}
+
+void handleBMEInfo() {
+  String status = getBME280Status();
+  server.send(200, "text/plain", status);
+}
+
+void handlenRFInfo() {
+  String status = getNRF905Status();
+  server.send(200, "text/plain", status);
+}
+
 // Функция для отправки данных в InfluxDB (без аргументов)
 void sendDataToInfluxDB()
 {
@@ -406,6 +457,9 @@ void setup()
   server.on("/REMOVED", handleAdmin);
   server.on("/restart", handleRestart);
   server.on("/graph-data", handleGraphData);
+  server.on("/sysinfo", HTTP_GET, handleSysInfo);
+  server.on("/bmeinfo", HTTP_GET, handleBMEInfo);
+  server.on("/nrf905Status", HTTP_GET, handlenRFInfo);
   server.serveStatic("/", LittleFS, "/");
   server.begin();
 
@@ -419,6 +473,7 @@ void setup()
 
   // Настройка канала и диапазона
   driver.setChannel(175, false); // Канал 175 = 439.9 МГц
+  driver.setRF(RH_NRF905::TransmitPower10dBm);
   Serial.println("Приемник настроен и готов к работе!");
 
   // Инициализация BMP280
