@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html>
+<meta charset='UTF-8'>
+<head>
+    <title>ESP32 Admin</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            color: #141629;
+            background-color: #414f8a;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin: 0;
+            padding: 20px;
+        }
+
+        .container {
+            display: grid;
+            grid-template-columns: repeat(1, 1fr);
+            grid-gap: 20px;
+            max-width: 800px;
+        }
+
+        .widget-title {
+            grid-column: span 1;
+            text-align: center;
+            font-size: 24px;
+            margin-bottom: 10px;
+        }
+
+        .widget {
+            font-size: 12px;
+            background-color: #242749;
+            color: #000000;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 2px 3px 1px rgba(0, 0, 0, 0.185);
+            text-align: center;
+        }
+        
+        .widget h2 {
+            margin-top: 0;
+        }
+
+        .value {
+            font-size: 10px;
+            color: #ffffff;
+            margin-top: 10px;
+            margin-bottom: 10px;
+        }
+        #RestartButton {
+            border: none;            /* Убираем границу */
+            outline: none;           /* Убираем обводку при фокусе */
+            background-color: #242749; /* Фоновый цвет, который подходит под стиль остальных виджетов */
+            padding: 20px;       /* Отступы для удобства клика */
+            font-size: 12px;          /* Размер шрифта */
+            cursor: pointer;          /* Курсор-рука при наведении */
+            transition: background-color 0.3s ease; /* Плавное изменение цвета при нажатии */
+        }
+
+        /* Изменение цвета при нажатии (активном состоянии) */
+        #RestartButton:active {
+            background-color: #575eac;  /* Цвет при нажатии */
+        }
+    </style>
+</head>
+<body>
+    <h1>Настройки и системная информация</h1>
+    <div class="container">
+        <div class="widget">
+            <h2>System Info</h2>
+            <div class="value" id="getSystemInfo()"></div>
+        </div>
+        <div class="widget">
+            <h2>BME280 Status</h2>
+            <div class="value" id="getBME280Status()"></div>
+        </div>
+        <form id="restartForm" action="/restart" method="POST">
+            <button type="submit" id="RestartButton" class="widget">Restart ESP32</button>
+        </form>
+        </div>
+        <script src="/restart.js"></script>
+</body>
+</html>
