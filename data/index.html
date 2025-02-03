@@ -41,7 +41,7 @@
         .pressure-widget {
             grid-column: span 2;
             background-color: #242749;
-            color: #101120;
+            color: #000000;
             border-radius: 10px;
             padding: 20px;
             box-shadow: 0 2px 3px 1px rgba(0, 0, 0, 0.185);
@@ -98,6 +98,21 @@
             height: 100%;
             border-radius: 5px;
             transition: width 0.3s ease, background-color 0.3s ease; /* Плавное изменение ширины и цвета */
+        }
+
+        #Button {
+            border: none;            /* Убираем границу */
+            outline: none;           /* Убираем обводку при фокусе */
+            background-color: #242749; /* Фоновый цвет, который подходит под стиль остальных виджетов */
+            padding: 20px;       /* Отступы для удобства клика */
+            font-size: 12px;          /* Размер шрифта */
+            cursor: pointer;          /* Курсор-рука при наведении */
+            transition: background-color 0.3s ease; /* Плавное изменение цвета при нажатии */
+        }
+
+        /* Изменение цвета при нажатии (активном состоянии) */
+        #Button:active {
+            background-color: #575eac;  /* Цвет при нажатии */
         }
     </style>
 </head>
@@ -170,6 +185,9 @@
                 </div>
             </div>
         </div>
+        <form action="/admin" method="POST">
+            <button type="submit" id="Button" class="widget">Настройки</button>
+        </form>
     </div>
     <script src="https://d3js.org/d3.v7.min.js"></script>
     <script src="/script.js"></script>
