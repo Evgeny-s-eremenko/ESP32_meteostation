@@ -3,6 +3,7 @@
 #include <Adafruit_BME280.h>
 #include <WiFi.h>
 #include <WebServer.h>
+#include <Update.h>
 #include <ArduinoJson.h>
 #include <SPI.h>
 #include "LittleFS.h"
@@ -112,6 +113,67 @@ void handleRoot()
   {
     server.send(404, "text/plain", "index.html not found");
   }
+}
+
+void handleUpdateform() {
+  if (LittleFS.exists("/index.html"))
+  {
+    File file = LittleFS.open("/updateform.html", "r");
+    if (file)
+    {
+      server.streamFile(file, "text/html");
+      file.close();
+    }
+    else
+    {
+      server.send(500, "text/plain", "Failed to open updateform.html");
+    }
+  }
+  else
+  {
+    server.send(404, "text/plain", "updateform.html not found");
+  }
+}
+
+void handleUpdateUpload() {
+  HTTPUpload& upload = server.upload();
+  
+  if (upload.status == UPLOAD_FILE_START) {
+    Serial.printf("Начало обновления: %s\n", upload.filename.c_str());
+    // Инициализируем обновление; если размер не известен — используем UPDATE_SIZE_UNKNOWN
+    if (!Update.begin(UPDATE_SIZE_UNKNOWN)) {
+      Update.printError(Serial);
+    }
+  } 
+  else if (upload.status == UPLOAD_FILE_WRITE) {
+    // Записываем полученные данные
+    if (Update.write(upload.buf, upload.currentSize) != upload.currentSize) {
+      Update.printError(Serial);
+    }
+  } 
+  else if (upload.status == UPLOAD_FILE_END) {
+    // Завершаем обновление с проверкой целостности (параметр true)
+    if (Update.end(true)) {
+      Serial.printf("Обновление завершено, записано байт: %u\n", upload.totalSize);
+    } else {
+      Update.printError(Serial);
+    }
+  }
+  else if (upload.status == UPLOAD_FILE_ABORTED) {
+    Update.end();
+    Serial.println("Обновление прервано");
+  }
+}
+
+void handleUpdateEnd() {
+  // Отправляем ответ клиенту
+  server.sendHeader("Connection", "close");
+  server.send(200, "text/plain", (Update.hasError()) ? "FAIL" : "OK");
+  
+  // Небольшая задержка для корректного завершения отправки данных,
+  // затем перезагрузка устройства для применения обновления.
+  delay(1000);
+  ESP.restart();
 }
 
 void handleAdmin() {
@@ -455,6 +517,8 @@ void setup()
   // Настройка сервера
   server.on("/", handleRoot);
   server.on("/admin", handleAdmin);
+  server.on("/updateform", handleUpdateform);
+  server.on("/update", HTTP_POST, handleUpdateEnd, handleUpdateUpload);
   server.on("/restart", handleRestart);
   server.on("/graph-data", handleGraphData);
   server.on("/sysinfo", HTTP_GET, handleSysInfo);

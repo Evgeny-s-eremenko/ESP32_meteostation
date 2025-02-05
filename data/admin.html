@@ -28,7 +28,7 @@
             gap: 20px;
             width: 100%;
             max-width: 200px;
-            justify-content: flex-start;
+            justify-content: center;
             margin-top: 40px;
         }
 
@@ -120,6 +120,9 @@
         </form>
         <form id="restartForm" action="/restart" method="POST">
             <button type="submit" id="RestartButton" class="widget">Restart ESP32</button>
+        </form>
+        <form id="restartForm" action="/updatefirmware" method="POST">
+            <button type="submit" id="RestartButton" class="widget">Update FW</button>
         </form>
     </div>
         <script src="/restart.js"></script>

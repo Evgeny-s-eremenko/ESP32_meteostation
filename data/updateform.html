@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html>
+<meta charset='UTF-8'>
+<head>
+    <title>ESP32 update</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            color: #141629;
+            background-color: #414f8a;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin: 0;
+            padding: 20px;
+        }
+
+        .container {
+            display: grid;
+            grid-auto-flow: column;
+            grid-gap: 20px;
+            max-width: 800px;
+            margin-bottom: 20px;
+            justify-items: center;
+        }
+        .widget {
+            width: 220px;
+            height: 124px;
+            font-size: 12px;
+            background-color: #242749;
+            color: #000000;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 2px 3px 1px rgba(0, 0, 0, 0.185);
+            text-align: center;
+            max-height: 250px;
+        }
+        .Button {
+            border: none;            /* Убираем границу */
+            outline: none;           /* Убираем обводку при фокусе */
+            background-color: #242749; /* Фоновый цвет, который подходит под стиль остальных виджетов */
+            color: #000000;
+            font-size: 12px;
+            height: 30px;          /* Размер шрифта */
+            width: 130px;
+            display: inline-block;
+            justify-content: center;
+            text-align: center;
+            line-height: 30px;
+            border-radius: 10px;
+            cursor: pointer;          /* Курсор-рука при наведении */
+            transition: background-color 0.3s ease; /* Плавное изменение цвета при нажатии */
+        }
+
+        /* Изменение цвета при нажатии (активном состоянии) */
+        .Button:active {
+            background-color: #575eac;  /* Цвет при нажатии */
+        }
+        #fileUpload {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+  <h1>Обновление прошивки</h1>
+  <div class="container">
+    <form method="POST" action="/update" enctype="multipart/form-data">
+      <!-- Скрытое поле выбора файла -->
+      <input type="file" name="update" id="fileUpload">
+      
+      <!-- Кнопка, стилизованная как элемент label -->
+      <label for="fileUpload" class="Button">Выбрать файл</label>
+      
+      <!-- Кнопка отправки формы -->
+      <input type="submit" class="Button" value="Начать обновление">
+    </form>
+  </div>
+</body>
+</html>
