@@ -116,6 +116,9 @@ void handleRoot()
 }
 
 void handleUpdateform() {
+  if (!server.authenticate(http_username, http_password)) {
+        return server.requestAuthentication();
+    }
   if (LittleFS.exists("/updateform.html"))
   {
     File file = LittleFS.open("/updateform.html", "r");
@@ -209,6 +212,9 @@ void handleAdmin() {
 }
 
 void handleRestart() {
+    if (!server.authenticate(http_username, http_password)) {
+        return server.requestAuthentication();
+    }
     server.send(200, "text/plain", "ESP32 is restarting...");
     delay(1000);
     ESP.restart();
