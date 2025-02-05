@@ -116,7 +116,7 @@ void handleRoot()
 }
 
 void handleUpdateform() {
-  if (LittleFS.exists("/index.html"))
+  if (LittleFS.exists("/updateform.html"))
   {
     File file = LittleFS.open("/updateform.html", "r");
     if (file)

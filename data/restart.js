@@ -49,5 +49,6 @@ window.addEventListener('load', () => {
     setInterval(() => {
         loadSystemInfo();
         loadBMEInfo();
+        loadNRF905Info();
     }, 10000);
 });
