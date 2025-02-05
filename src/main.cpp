@@ -137,22 +137,30 @@ void handleUpdateform() {
 
 void handleUpdateUpload() {
   HTTPUpload& upload = server.upload();
-  
+
   if (upload.status == UPLOAD_FILE_START) {
     Serial.printf("Начало обновления: %s\n", upload.filename.c_str());
-    // Инициализируем обновление; если размер не известен — используем UPDATE_SIZE_UNKNOWN
-    if (!Update.begin(UPDATE_SIZE_UNKNOWN)) {
-      Update.printError(Serial);
+
+    // Простейшая логика: если имя файла содержит "littlefs", обновляем файловую систему,
+    // иначе считаем, что это обновление прошивки.
+    if (upload.filename.indexOf("littlefs") >= 0) {
+      Serial.println("Обновление файловой системы");
+      if (!Update.begin(UPDATE_SIZE_UNKNOWN, U_SPIFFS)) { // или U_LITTLEFS, если настроено
+        Update.printError(Serial);
+      }
+    } else {
+      Serial.println("Обновление прошивки");
+      if (!Update.begin(UPDATE_SIZE_UNKNOWN, U_FLASH)) {
+        Update.printError(Serial);
+      }
     }
-  } 
+  }
   else if (upload.status == UPLOAD_FILE_WRITE) {
-    // Записываем полученные данные
     if (Update.write(upload.buf, upload.currentSize) != upload.currentSize) {
       Update.printError(Serial);
     }
-  } 
+  }
   else if (upload.status == UPLOAD_FILE_END) {
-    // Завершаем обновление с проверкой целостности (параметр true)
     if (Update.end(true)) {
       Serial.printf("Обновление завершено, записано байт: %u\n", upload.totalSize);
     } else {
@@ -164,6 +172,7 @@ void handleUpdateUpload() {
     Serial.println("Обновление прервано");
   }
 }
+
 
 void handleUpdateEnd() {
   // Отправляем ответ клиенту
