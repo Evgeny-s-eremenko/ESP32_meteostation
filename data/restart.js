@@ -38,6 +38,34 @@ function loadNRF905Info() {
             document.getElementById("nrf905Status").innerText = data;
         });
 }
+function sendNRFConfig() {
+    // Получаем значения из формы
+    var channel = document.getElementById('channel').value;
+    var band = document.querySelector('input[name="band"]:checked').value;
+    var power = document.getElementById('power').value;
+
+    // Формируем параметры запроса
+    var params = new URLSearchParams();
+    params.append('channel', channel);
+    params.append('band', band);
+    params.append('power', power);
+
+    // Отправляем AJAX-запрос методом POST
+    fetch('/setNRF905', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded'
+      },
+      body: params.toString()
+    })
+    .then(response => response.text())
+    .then(text => {
+      document.getElementById('result').innerText = text;
+    })
+    .catch(err => {
+      document.getElementById('result').innerText = 'Ошибка: ' + err;
+    });
+  }
 
 // Вызываем обновление после загрузки страницы и, например, периодически
 window.addEventListener('load', () => {

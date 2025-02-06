@@ -294,6 +294,23 @@ String getNRF905Status() {
     return status;
 }
 
+RH_NRF905::TransmitPower getTransmitPowerFromString(const String &powerStr) {
+  if (powerStr == "TransmitPowerm10dBm") {
+    return RH_NRF905::TransmitPowerm10dBm;  // -10 dBm
+  }
+  else if (powerStr == "TransmitPowerm2dBm") {
+    return RH_NRF905::TransmitPowerm2dBm;   // -2 dBm
+  }
+  else if (powerStr == "TransmitPower6dBm") {
+    return RH_NRF905::TransmitPower6dBm;    // 6 dBm
+  }
+  else if (powerStr == "TransmitPower10dBm") {
+    return RH_NRF905::TransmitPower10dBm;   // 10 dBm
+  }
+  // Значение по умолчанию
+  return RH_NRF905::TransmitPower10dBm;
+}
+
 void handleSysInfo() {
   String info = getSystemInfo();
   server.send(200, "text/plain", info);
@@ -307,6 +324,26 @@ void handleBMEInfo() {
 void handlenRFInfo() {
   String status = getNRF905Status();
   server.send(200, "text/plain", status);
+}
+
+void handleSetNRF905() {
+  int channel = server.arg("channel").toInt();
+  bool band = (server.arg("band") == "true");
+  String powerStr = server.arg("power");
+  
+  // Преобразование строки в значение TransmitPower
+  RH_NRF905::TransmitPower txPower = getTransmitPowerFromString(powerStr);
+  
+  // Вывод для отладки
+  Serial.printf("Получены настройки: channel = %d, band = %s, power = %s\n",
+                channel, (band ? "hiband" : "lowband"), powerStr.c_str());
+                
+  // Применяем настройки через драйвер
+  driver.setChannel(channel, band);
+  driver.setRF(txPower);
+
+  // Отправляем ответ клиенту
+  server.send(200, "text/plain", "Настройки nRF905 приняты");
 }
 
 // Функция для отправки данных в InfluxDB (без аргументов)
@@ -539,6 +576,7 @@ void setup()
   server.on("/sysinfo", HTTP_GET, handleSysInfo);
   server.on("/bmeinfo", HTTP_GET, handleBMEInfo);
   server.on("/nrf905Status", HTTP_GET, handlenRFInfo);
+  server.on("/setNRF905", HTTP_POST, handleSetNRF905);
   server.serveStatic("/", LittleFS, "/");
   server.begin();
 
