@@ -71,9 +71,15 @@
             width: 540px;
             height: 35px;
             grid-column: span 2;
+            background-color: #242749;
             cursor: pointer;
             border: none;
             padding: 10px 20px;
+            transition: background-color 0.3s ease;
+        }
+
+        #toggleGraphButton:hover {
+            background-color: #575eac;
         }
 
         #chartContainer {
@@ -85,7 +91,7 @@
             background-color: #242749;
             color: #101120;
             border-radius: 10px;
-            padding: 20px;
+            padding: 10px;
             box-shadow: 0 2px 3px 1px rgba(0, 0, 0, 0.185);
         }
 
@@ -120,7 +126,7 @@
         }
 
         /* Изменение цвета при нажатии (активном состоянии) */
-        #Button:active {
+        #Button:hover {
             background-color: #575eac;  /* Цвет при нажатии */
         }
     </style>
@@ -190,7 +196,7 @@
         <div id="chartContainer" style="display: none;">
             <div class="grid-container">
                 <div class="grid-item">
-                    <iframe id="temperatureChart" src="http://62.33.134.164:3000/public-dashboards/8540a49c692f4ba7841a2228b102d203" alt="Graph" width="500" height="900" frameborder="0"></iframe>
+                    <iframe id="temperatureChart" src="http://62.33.134.164:3000/public-dashboards/8540a49c692f4ba7841a2228b102d203" alt="Graph" width="520" height="900" frameborder="0"></iframe>
                 </div>
             </div>
         </div>
