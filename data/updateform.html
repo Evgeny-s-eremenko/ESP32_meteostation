@@ -54,7 +54,7 @@
         }
 
         /* Изменение цвета при нажатии (активном состоянии) */
-        .Button:active {
+        .Button:hover {
             background-color: #575eac;  /* Цвет при нажатии */
         }
         #fileUpload {
@@ -64,6 +64,7 @@
 </head>
 <body>
   <h1>Обновление прошивки</h1>
+  <h2>firmware.bin для обновления прошивки, littlefs.bin для обновления файловой системы</h2>
   <div class="container">
     <form method="POST" action="/update" enctype="multipart/form-data">
       <!-- Скрытое поле выбора файла -->
