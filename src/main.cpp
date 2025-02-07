@@ -80,7 +80,7 @@ float calculatehomeDP(float homeTemp, float homeHum)
 
 // ---------------------------- Обработчики HTTP запросов -----------------------------
 void handleGraphData() {
-  DynamicJsonDocument doc(256); // Размер зависит от количества данных
+  DynamicJsonDocument doc(256);
   doc["temperature"] = temperature;
   doc["humidity"] = humidity;
   doc["dewPoint"] = dewPoint;
@@ -297,12 +297,12 @@ String getNRF905Status() {
 
     // 3. Вывод конфигурации (остается без изменений)
     status += "Channel: " + String(config[0]) + "\n";
-    
-    uint8_t band_bit = config[1] & RH_NRF905_CONFIG_1_HFREQ_PLL;
-    uint32_t freq = band_bit 
-        ? 844800000 + (config[0] * 2000000) 
-        : 422400000 + (config[0] * 100000);
-    status += "Frequency: " + String(freq/1000000.0, 3) + " MHz\n";
+
+    uint8_t band_bit = config[1] & RH_NRF905_CONFIG_1_HFREQ_PLL;  // Определяем, работает ли модуль в диапазоне 868/915 МГц
+    float freq = 422.4 + (config[0] / 10.0);                      // Рассчитываем базовую частоту для 433 МГц
+    if (band_bit) freq *= 2;                                      // Если band_bit = 1, умножаем на 2 для 868/915 МГц
+
+    status += "Frequency: " + String(freq, 3) + " MHz\n";
 
     uint8_t pwr = (config[1] & RH_NRF905_CONFIG_1_PA_PWR) >> 2;
     const char* pwr_str[] = {"-10 dBm", "-2 dBm", "+6 dBm", "+10 dBm"};
@@ -428,7 +428,7 @@ void taskSendDataToInfluxDB(void *pvParameters) {
 
         sendDataToInfluxDB(); // Вызываем функцию без аргументов
 
-        vTaskDelay(60000 / portTICK_PERIOD_MS); // Отправка данных раз в минуту
+        vTaskDelay(36000 / portTICK_PERIOD_MS); // Отправка данных раз в минуту
     }
 }
 
