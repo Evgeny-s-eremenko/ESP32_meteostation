@@ -28,6 +28,7 @@ const char* influxDBDatabase = "REMOVED";
 #define NRF905_CE 27
 #define NRF905_TX_EN 25
 #define NRF905_CS 15
+#define NRF905_PWR_UP_PIN 26 // пин принудительного сброса nRF905
 // ---------------------- Определение пинов serial2 --------------------------
 HardwareSerial nextion(2); // Используем Serial2 для связи с дисплеем
 #define RX2 16  // RX пин ESP32
@@ -220,6 +221,28 @@ void handleRestart() {
     ESP.restart();
 }
 
+void resetNRF905() {
+  Serial.println("Performing nRF905 reset...");
+  digitalWrite(NRF905_PWR_UP_PIN, LOW);  // Выключаем питание (пин LOW)
+  delay(100);                            // Задержка (100 мс – можно настроить по datasheet)
+  digitalWrite(NRF905_PWR_UP_PIN, HIGH); // Включаем питание (пин HIGH)
+  Serial.println("nRF905 reset complete.");
+  delay(100);
+   // Переинициализация и настройка модуля
+  if (driver.init()) {
+    Serial.println("nRF905 reinitialized successfully.");
+    driver.setChannel(175, false); // Канал 175 = 439.9 МГц
+    driver.setRF(RH_NRF905::TransmitPowerm2dBm);
+    // Другие необходимые настройки...
+  } else {
+    Serial.println("Failed to reinitialize nRF905.");
+  }
+}
+
+void handleNRFReset() {
+  resetNRF905();
+  server.send(200, "text/plain", "nRF905 has been reset.");
+}
 String getSystemInfo() {
   String info = "";
   
@@ -420,6 +443,9 @@ void taskWebServer(void *pvParameters)
 
 void taskNRF905(void *pvParameters)
 {
+  // Запоминаем время последнего успешного получения данных
+  unsigned long lastReceived = millis();
+
   while (true)
   {
     if (driver.available())
@@ -433,13 +459,27 @@ void taskNRF905(void *pvParameters)
         float temp, hum;
         if (sscanf((char *)buf, "T:%f H:%f", &temp, &hum) == 2)
         {
-          temperature = temp; // Обновляем глобальную переменную
-          humidity = hum;     // Обновляем глобальную переменную
+          // Обновляем глобальные переменные
+          temperature = temp;
+          humidity = hum;
           dewPoint = calculateDewPoint(temperature, humidity);
+
+          // Сбрасываем таймер, так как данные получены
+          lastReceived = millis();
         }
       }
     }
-    vTaskDelay(1000 / portTICK_PERIOD_MS); // Задержка 1 сек между проверками
+    
+    // Проверяем, прошло ли больше 10 минут без получения данных
+    if ((millis() - lastReceived) >= 600000)  // 600000 мс = 10 минут
+    {
+      Serial.println("Нет данных более 10 минут. Выполняется сброс nRF905...");
+      resetNRF905();  // Вызываем функцию сброса nRF905
+      // Обновляем lastReceived, чтобы не вызывать сброс повторно сразу же
+      lastReceived = millis();
+    }
+    
+    vTaskDelay(1000 / portTICK_PERIOD_MS); // Задержка 1 секунда
   }
 }
 
@@ -546,7 +586,14 @@ void setup()
   nextion.begin(9600, SERIAL_8N1, RX2, TX2); // Инициализация Serial2
   Serial.println("ESP32 + Nextion Initialized");
 
+  // Настройка пина для управления PWR_UP nRF905
+  pinMode(NRF905_PWR_UP_PIN, OUTPUT);
+  digitalWrite(NRF905_PWR_UP_PIN, HIGH);  // В нормальном режиме модуль должен получать питание (HIGH)
+  Serial.println("Установка PWR_UP в состояние HIGH");
+
   SPI.begin(NRF905_SPI_SCK, NRF905_SPI_MISO, NRF_SPI_MOSI);
+  Serial.println("SPI Initialized");
+
 
   // Инициализация файловой системы
   if (!LittleFS.begin())
@@ -577,6 +624,7 @@ void setup()
   server.on("/bmeinfo", HTTP_GET, handleBMEInfo);
   server.on("/nrf905Status", HTTP_GET, handlenRFInfo);
   server.on("/setNRF905", HTTP_POST, handleSetNRF905);
+  server.on("/nrfreset", HTTP_POST, handleNRFReset);
   server.serveStatic("/", LittleFS, "/");
   server.begin();
 

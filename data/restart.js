@@ -6,7 +6,7 @@ document.getElementById("RestartButton").addEventListener("click", function(e) {
     fetch("/restart", { method: "POST" })
       .then(response => response.text())
       .then(data => {
-          console.log("Response:", data);
+          document.getElementById('result').innerText = data;
           // Можно показать уведомление или перезагрузить страницу, если нужно:
           // location.reload();
       })
@@ -65,8 +65,18 @@ function sendNRFConfig() {
     .catch(err => {
       document.getElementById('result').innerText = 'Ошибка: ' + err;
     });
-  }
+}
 
+function resetNRF(){
+    fetch('/nrfreset', {
+      method: 'POST'})
+      .then(response => response.text())
+      .then(text => {document.getElementById('result').innerText = text;
+      })
+      .catch(err => {
+        document.getElementById('result').innerText = 'Ошибка: ' + err;
+      });
+}
 // Вызываем обновление после загрузки страницы и, например, периодически
 window.addEventListener('load', () => {
     loadSystemInfo();
