@@ -16,6 +16,24 @@ function updateIndicator(value, min, max, elementId) {
     progressBar.style.backgroundColor = getColor(value, min, max);
 }
 
+function updateWeatherIcon(forecast) {
+    const weatherIcon = document.getElementById('weatherIcon');
+    if (!weatherIcon) {
+        console.warn("Элемент weatherIcon не найден.");
+        return;
+    }
+
+    if (forecast >= 0 && forecast <= 2) {
+        weatherIcon.src = '/sunny.png';
+    } else if (forecast <= 5) {
+        weatherIcon.src = '/partly_cloudy.png';
+    } else if (forecast <= 7) {
+        weatherIcon.src = '/cloudy.png';
+    } else {
+        weatherIcon.src = '/stormy.png';
+    }
+}
+
 function updateTable(data) {
     if (!data || data.temperature === undefined || data.humidity === undefined || 
         data.dewPoint === undefined || data.pressure === undefined || data.homeTemp === undefined || data.homeHum === undefined || data.homeDP === undefined) {
@@ -46,6 +64,9 @@ function updateTable(data) {
     updateIndicator(data.dewPoint, -35, 30, 'dewPointBar'); // Точка росы на улице
     updateIndicator(data.homeDP, -20, 30, 'homeDPBar'); // Точка росы дома
     updateIndicator(data.pressure, 960, 1040, 'pressureBar'); // Давление
+
+    // Обновляем иконку погоды
+    updateWeatherIcon(data.forecast);
   }
 
 function fetchDataAndUpdate() {

@@ -8,6 +8,10 @@
 #include <SPI.h>
 #include "LittleFS.h"
 #include <HTTPClient.h>
+#include <time.h>
+#include <Forecaster.h>
+
+Forecaster cond;
 
 // put function declarations here:
 // ----------------------------- Wi-Fi и сервер -----------------------------
@@ -15,6 +19,11 @@ const char *ssid = "Lucky Devil";
 const char *password = "evgen850517";
 const char* http_username = "evgen";  // Логин для доступа
 const char* http_password = "Sergeevich850517!";   // Пароль для доступа
+
+// Настройка NTP-сервера
+const char* ntpServer = "pool.ntp.org";
+const long  gmtOffset_sec = 3600 * 10; // Смещение для Komsomolsk-on-Amur (GMT+10)
+const int   daylightOffset_sec = 0;
 
 // Параметры InfluxDB
 const char* influxDBHost = "192.168.1.214";
@@ -60,6 +69,8 @@ volatile float pressure = 0.0f;
 volatile float homeTemp = 0.0f;
 volatile float homeHum = 0.0f;
 volatile float homeDP = 0.0f;
+int forecast = 0;
+int month = -1;
 
 // -------------------------- Функция расчета точки росы -----------------------------
 float calculateDewPoint(float temperature, float humidity)
@@ -89,6 +100,7 @@ void handleGraphData() {
   doc["homeHum"] = homeHum;
   doc["dewPoint"] = dewPoint;
   doc["homeDP"] = homeDP;
+  doc["forecast"] = forecast;
 
   String json;
   serializeJson(doc, json);
@@ -420,6 +432,16 @@ void sendDataToInfluxDB()
 
   http.end();
 }
+
+// Функция получения номера месяца
+int getMonth() {
+  struct tm timeinfo;
+  if (getLocalTime(&timeinfo)) {
+    return timeinfo.tm_mon + 1;  // tm_mon возвращает месяц от 0 до 11
+  }
+  return -1;  // Ошибка получения месяца
+}
+
 // --------------------------- Задачи FreeRTOS ---------------------------
 
 void taskSendDataToInfluxDB(void *pvParameters) {
@@ -496,6 +518,32 @@ void taskBMP280(void *pvParameters)
     }
 
     vTaskDelay(5000 / portTICK_PERIOD_MS); // Задержка 5 секунд
+  }
+}
+
+void taskGetTime(void *pvParameters) {
+  struct tm timeinfo;
+  for (;;) {  // Бесконечный цикл в задаче
+    if (getLocalTime(&timeinfo)) {
+      int currentMonth = timeinfo.tm_mon + 1;  // tm_mon возвращает месяц от 0 до 11
+      Serial.printf("Текущий месяц: %d\n", currentMonth);
+    } else {
+      Serial.println("Не удалось получить время через NTP.");
+    }
+    vTaskDelay(60000 / portTICK_PERIOD_MS);  // Проверка времени раз в минуту
+  }
+}
+
+void taskForecast(void *pvParameters) {
+  for (;;) {
+    int month = getMonth();
+    if (month != -1) {
+      cond.setMonth(month);  // Устанавливаем текущий месяц в Forecaster
+    }
+    cond.addP(bme.readPressure(), temperature);
+    forecast = cond.getCast();
+
+    vTaskDelay((30 * 60 * 1000) / portTICK_PERIOD_MS);  // 30 минут задержки
   }
 }
 
@@ -603,8 +651,14 @@ void setup()
   }
   Serial.println("LittleFS mounted");
 
+  //Режим клиента
+
+  WiFi.mode(WIFI_STA);
+
   // Подключение к Wi-Fi
   WiFi.begin(ssid, password);
+  WiFi.setAutoReconnect(true);
+  WiFi.persistent(true);
   while (WiFi.status() != WL_CONNECTED)
   {
     delay(1000);
@@ -658,14 +712,22 @@ void setup()
   //                Adafruit_BME280::STANDBY_MS_500); /* Standby time. */
   // Serial.println("BMP280 in forced mode");
 
+  // Настройка времени через NTP
+  configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
+
+  // Установка высоты для Forecaster
+  cond.setH(61);
+
   // Создание задач FreeRTOS
 
   xTaskCreate(taskNRF905, "NRF905 Receiver", 2048, NULL, 5, NULL);
   xTaskCreate(taskBMP280, "BMP280 Sensor", 2048, NULL, 4, NULL);
   xTaskCreate(taskSendDataToNextion, "Send Data to Nextion Task", 4096, NULL, 2, NULL);
   xTaskCreate(taskSendGraphToNextion, "Send Graph Data", 4096, NULL, 2, NULL);
+  xTaskCreate(taskGetTime, "Get NTP Time", 4096, NULL, 3, NULL);
   xTaskCreatePinnedToCore(taskSendDataToInfluxDB, "InfluxDBTask", 10000, NULL, 1, NULL, 1);
   xTaskCreate(taskWebServer, "Web Server", 16384, NULL, 5, NULL);
+  xTaskCreate(taskForecast, "Forecast task", 2048, NULL, 1, NULL);
   xTaskCreate(taskSerialPrint, "Serial Print", 2048, NULL, 1, NULL);
 }
 
