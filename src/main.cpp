@@ -58,7 +58,7 @@ void handleRoot();
 void taskWebServer(void *pvParameters);
 void taskNRF905(void *pvParameters);
 void taskBMP280(void *pvParameters);
-void taskSerialPrint(void *pvParameters);
+//void taskSerialPrint(void *pvParameters);
 float calculateDewPoint(float temperature, float humidity);
 
 // --------------------------- Глобальные переменные ---------------------------
@@ -69,6 +69,7 @@ volatile float pressure = 0.0f;
 volatile float homeTemp = 0.0f;
 volatile float homeHum = 0.0f;
 volatile float homeDP = 0.0f;
+volatile float trend = 0.0f;
 int forecast = 0;
 int month = -1;
 
@@ -101,6 +102,7 @@ void handleGraphData() {
   doc["dewPoint"] = dewPoint;
   doc["homeDP"] = homeDP;
   doc["forecast"] = forecast;
+  doc["trend"] = trend;
 
   String json;
   serializeJson(doc, json);
@@ -236,7 +238,7 @@ void handleRestart() {
 void resetNRF905() {
   Serial.println("Performing nRF905 reset...");
   digitalWrite(NRF905_PWR_UP_PIN, LOW);  // Выключаем питание (пин LOW)
-  delay(100);                            // Задержка (100 мс – можно настроить по datasheet)
+  delay(200);                            // Задержка (100 мс – можно настроить по datasheet)
   digitalWrite(NRF905_PWR_UP_PIN, HIGH); // Включаем питание (пин HIGH)
   Serial.println("nRF905 reset complete.");
   delay(100);
@@ -526,7 +528,7 @@ void taskGetTime(void *pvParameters) {
   for (;;) {  // Бесконечный цикл в задаче
     if (getLocalTime(&timeinfo)) {
       int currentMonth = timeinfo.tm_mon + 1;  // tm_mon возвращает месяц от 0 до 11
-      Serial.printf("Текущий месяц: %d\n", currentMonth);
+      //Serial.printf("Текущий месяц: %d\n", currentMonth);
     } else {
       Serial.println("Не удалось получить время через NTP.");
     }
@@ -540,41 +542,48 @@ void taskForecast(void *pvParameters) {
     if (month != -1) {
       cond.setMonth(month);  // Устанавливаем текущий месяц в Forecaster
     }
+    if (bme.readPressure() !=0) {
+    
     cond.addP(bme.readPressure(), temperature);
+    }
     forecast = cond.getCast();
+    trend = cond.getTrend() / 100.0f;
+    Serial.print("Baric tendence: ");
+    Serial.print(trend);
+    Serial.println(" hPa");
 
     vTaskDelay((30 * 60 * 1000) / portTICK_PERIOD_MS);  // 30 минут задержки
   }
 }
 
-void taskSerialPrint(void *pvParameters)
-{
-  while (true)
-  {
-    Serial.print("Температура дома: ");
-    Serial.print(homeTemp);
-    Serial.println(" °C");
-    Serial.print("Влажность дома: ");
-    Serial.print(homeHum);
-    Serial.println(" %");
-    Serial.print("Точка росы дома: ");
-    Serial.print(homeDP);
-    Serial.println(" °C");
-    Serial.print("Температура: ");
-    Serial.print(temperature);
-    Serial.println(" °C");
-    Serial.print("Влажность: ");
-    Serial.print(humidity);
-    Serial.println(" %");
-    Serial.print("Точка росы: ");
-    Serial.print(dewPoint);
-    Serial.println(" °C");
-    Serial.print("Давление: ");
-    Serial.print(pressure);
-    Serial.println(" hPa");
-    vTaskDelay(10000 / portTICK_PERIOD_MS);
-  }
-}
+// void taskSerialPrint(void *pvParameters)
+// {
+//   while (true)
+//   {
+//     Serial.print("Температура дома: ");
+//     Serial.print(homeTemp);
+//     Serial.println(" °C");
+//     Serial.print("Влажность дома: ");
+//     Serial.print(homeHum);
+//     Serial.println(" %");
+//     Serial.print("Точка росы дома: ");
+//     Serial.print(homeDP);
+//     Serial.println(" °C");
+//     Serial.print("Температура: ");
+//     Serial.print(temperature);
+//     Serial.println(" °C");
+//     Serial.print("Влажность: ");
+//     Serial.print(humidity);
+//     Serial.println(" %");
+//     Serial.print("Точка росы: ");
+//     Serial.print(dewPoint);
+//     Serial.println(" °C");
+//     Serial.print("Давление: ");
+//     Serial.print(pressure);
+//     Serial.println(" hPa");
+//     vTaskDelay(10000 / portTICK_PERIOD_MS);
+//   }
+// }
 
 void sendGraphData(const char* waveformID, int channel, int value) {
   nextion.print("add ");
@@ -728,7 +737,7 @@ void setup()
   xTaskCreatePinnedToCore(taskSendDataToInfluxDB, "InfluxDBTask", 10000, NULL, 1, NULL, 1);
   xTaskCreate(taskWebServer, "Web Server", 16384, NULL, 5, NULL);
   xTaskCreate(taskForecast, "Forecast task", 2048, NULL, 1, NULL);
-  xTaskCreate(taskSerialPrint, "Serial Print", 2048, NULL, 1, NULL);
+  //xTaskCreate(taskSerialPrint, "Serial Print", 2048, NULL, 1, NULL);
 }
 
 // ----------------------------- Main loop -----------------------------
