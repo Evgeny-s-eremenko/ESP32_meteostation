@@ -34,6 +34,30 @@ function updateWeatherIcon(forecast) {
     }
 }
 
+function updateTrendIcon(trend) {
+    const trendIcon = document.getElementById('trendIcon');
+    if (!trendIcon) {
+        console.warn("Элемент trendIcon не найден.");
+        return;
+    }
+
+    if (trend < -3) {
+        trendIcon.src = '/3arrowdown.png';
+    } else if (trend >= -3 && trend < -2) {
+        trendIcon.src = '/2arrowdown.png';
+    } else if (trend >= -2 && trend < -1) {
+        trendIcon.src = '/arrowdown.png';
+    } else if (trend >= -1 && trend <= 1) {
+        trendIcon.src = '/neutral.png';
+    } else if (trend > 1 && trend <= 2) {
+        trendIcon.src = '/arrowup.png';
+    } else if (trend > 2 && trend <= 3) {
+        trendIcon.src = '/2arrowup.png';
+    } else {
+        trendIcon.src = '/3arrowup.png';
+    }
+}
+
 function updateTable(data) {
     if (!data || data.temperature === undefined || data.humidity === undefined || 
         data.dewPoint === undefined || data.pressure === undefined || data.homeTemp === undefined || data.homeHum === undefined || data.homeDP === undefined) {
@@ -67,6 +91,7 @@ function updateTable(data) {
 
     // Обновляем иконку погоды
     updateWeatherIcon(data.forecast);
+    updateTrendIcon(data.trend);
   }
 
 function fetchDataAndUpdate() {
