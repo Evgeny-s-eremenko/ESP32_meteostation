@@ -70,7 +70,7 @@ volatile float homeTemp = 0.0f;
 volatile float homeHum = 0.0f;
 volatile float homeDP = 0.0f;
 volatile float trend = 0.0f;
-int forecast = 0;
+float forecast = 0;
 int month = -1;
 
 // -------------------------- Функция расчета точки росы -----------------------------
