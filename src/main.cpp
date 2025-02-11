@@ -725,6 +725,7 @@ void setup()
   configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
 
   // Установка высоты для Forecaster
+  cond.begin();
   cond.setH(61);
 
   // Создание задач FreeRTOS
