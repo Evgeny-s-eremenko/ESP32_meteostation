@@ -408,7 +408,17 @@ void sendDataToInfluxDB()
 
     if (pressure != 0.0f)
     {
-      influxDBLine += "pressure=" + String(pressure, 2);
+      influxDBLine += "pressure=" + String(pressure, 2) + ",";
+    }
+    
+    if (forecast >= 0)
+    {
+      influxDBLine += "forecast=" + String(forecast, 2) + ",";
+    }
+
+    if (trend >= -30 && trend <= 30) 
+    {
+      influxDBLine += "trend=" + String(trend, 2);
     }
   String url = "http://" + String(influxDBHost) + ":" + String(influxDBPort) + "/write?db=" + String(influxDBDatabase);
 
@@ -542,9 +552,10 @@ void taskForecast(void *pvParameters) {
     if (month != -1) {
       cond.setMonth(month);  // Устанавливаем текущий месяц в Forecaster
     }
-    if (bme.readPressure() !=0) {
+    int p = bme.readPressure();
+    if (p !=0 && !isnan(p)) {
     
-    cond.addP(bme.readPressure(), temperature);
+    cond.addP(p, temperature);
     }
     forecast = cond.getCast();
     trend = cond.getTrend() / 100.0f;
