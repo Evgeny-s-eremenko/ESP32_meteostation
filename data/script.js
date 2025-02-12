@@ -87,7 +87,7 @@ function updateTable(data) {
     updateIndicator(data.homeHum, 0, 100, 'homeHumBar'); // Влажность дома
     updateIndicator(data.dewPoint, -35, 30, 'dewPointBar'); // Точка росы на улице
     updateIndicator(data.homeDP, -20, 30, 'homeDPBar'); // Точка росы дома
-    updateIndicator(data.pressure, 960, 1040, 'pressureBar'); // Давление
+    updateIndicator(data.pressure, 956, 1056, 'pressureBar'); // Давление
 
     // Обновляем иконку погоды
     updateWeatherIcon(data.forecast);
