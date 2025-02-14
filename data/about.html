@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html>
+<meta charset='UTF-8'>
+<head>
+    <title>About</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            color: #c7c7c7;
+            background-color: #414f8a;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin: 0;
+            padding: 20px;
+        }
+
+        .container {
+            display: grid;
+            grid-template-columns: repeat(1, 1fr);
+            grid-gap: 20px;
+            max-width: 800px;
+        }
+
+        .widget-title {
+            grid-column: span 1;
+            text-align: center;
+            font-size: 24px;
+            margin-bottom: 10px;
+        }
+
+        .widget {
+            width: 500px;
+            height:auto;
+            background-color: #242749;
+            color: #c7c7c7;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 2px 3px 1px rgba(0, 0, 0, 0.185);
+            text-align: center;
+            transition: background-color 0.3s ease;
+        }
+
+        .widget:hover {
+            background-color: #575eac;  /* Цвет при нажатии */
+        }
+
+        .text {
+            font-size: 14px;
+            color: #c7c7c7;
+            margin-top: 14px;
+            margin-bottom: 14px;            
+        }
+
+        #Button {
+            width: 90px;
+            height: 50px;
+            border: none;            /* Убираем границу */
+            outline: none;           /* Убираем обводку при фокусе */
+            background-color: #242749; /* Фоновый цвет, который подходит под стиль остальных виджетов */
+            padding: 15px;       /* Отступы для удобства клика */
+            font-size: 12px;          /* Размер шрифта */
+            text-align: center;
+            cursor: pointer;          /* Курсор-рука при наведении */
+            transition: background-color 0.3s ease; /* Плавное изменение цвета при нажатии */
+        }
+
+        /* Изменение цвета при нажатии (активном состоянии) */
+        #Button:hover {
+            background-color: #575eac;  /* Цвет при нажатии */
+        }
+    </style>
+</head>
+<body>
+    <H1>О проекте</H1>
+    <div class="container">
+        <div class="widget">
+            <h2>Проект станции сбора данных об окружающей среде на базе ESP32</h2>
+            <div class="text" style="text-align: left;">Версия: 0.1.0-b<br>
+                Основные возможности:<br>
+                - Сбор данных с внутреннего датчика BME280<br>
+                - Сбор данных с внешнего датчика через радиомодуль nRF905 (в текущей реализации данные о температуре и влажности с датчика AM2302)<br>
+                - Краткосрочный прогноз погоды по алгоритму Замбретти (с помощью модифицированной библиотеки AlexGyver - Forecaster)<br>
+                - Отправка собранных данных на сервер InfluxDB для последующей визуализации архива в Grafana<br>
+                - Отображение данных на дисплее Nextion<br>
+                - Защита от зависаний модуля nRF905<br>
+                - Функциональный веб-интерфейс<br>
+                Особенности веб-интерфейса:<br>
+                - Виджеты данных<br>
+                - Визуальная цветовая шкала данных<br>
+                - Прогноз погоды в виде иконок<br>
+                - Барическая тенденция в виде иконок<br>
+                - Встроенная панель Grafana с настраиваемыми графиками<br>
+                - Сервисные функции:<br>
+                    * Виджеты с системной информации с данными об уровне сигнала Wi-Fi, uptime, свободной оперативной памяти, статусе датчиков I2C и радиомодуля nRF905<br>
+                    * Перезагрузка ESP32<br>
+                    * Перезагрузка nRF905<br>
+                    * Настройка  nRF905<br>
+                    * Обновление прошивки и файловой системы через web-интерфейс<br>
+                </div>
+
+        </div>
+        <form action="/" method="POST">
+            <button type="submit" id="Button" class="widget">Home</button>
+        </form>
+    </div>
+</body>
