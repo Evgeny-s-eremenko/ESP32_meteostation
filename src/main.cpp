@@ -226,6 +226,26 @@ void handleAdmin() {
   }
 }
 
+void handleAbout() {
+    if (LittleFS.exists("/about.html"))
+{
+  File file = LittleFS.open("/about.html", "r");
+  if (file)
+  {
+    server.streamFile(file, "text/html");
+    file.close();
+  }
+  else
+  {
+    server.send(500, "text/plain", "Failed to open about.html");
+  }
+}
+else
+{
+  server.send(404, "text/plain", "about.html not found");
+}
+}
+
 void handleRestart() {
     if (!server.authenticate(http_username, http_password)) {
         return server.requestAuthentication();
@@ -266,6 +286,9 @@ String getSystemInfo() {
   
   // WiFi RSSI
   info += "WiFi RSSI: " + String(WiFi.RSSI()) + " dBm\n";
+
+  // IP address
+  info += "IP address: " + String(WiFi.localIP().toString()) + " \n";
   
   // Свободная heap-память
   info += "Free Heap: " + String(ESP.getFreeHeap()) + " bytes\n";
@@ -690,6 +713,7 @@ void setup()
   // Настройка сервера
   server.on("/", handleRoot);
   server.on("/admin", handleAdmin);
+  server.on("/about", handleAbout);
   server.on("/updateform", handleUpdateform);
   server.on("/update", HTTP_POST, handleUpdateEnd, handleUpdateUpload);
   server.on("/restart", handleRestart);
