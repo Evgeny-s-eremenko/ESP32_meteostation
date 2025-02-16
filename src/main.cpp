@@ -443,6 +443,7 @@ void sendDataToInfluxDB()
     {
       influxDBLine += "trend=" + String(trend, 2);
     }
+    else influxDBLine += "trend=" + String(0, 2);
   String url = "http://" + String(influxDBHost) + ":" + String(influxDBPort) + "/write?db=" + String(influxDBDatabase);
 
   http.begin(client, url);

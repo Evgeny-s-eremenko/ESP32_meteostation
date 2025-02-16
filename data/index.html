@@ -32,6 +32,7 @@
         .widget {
             width: 220px;
             height: 124px;
+            position: relative;
             background-color: #242749;
             color: #c7c7c7;
             border-radius: 10px;
@@ -43,6 +44,33 @@
 
         .widget:hover {
             background-color: #575eac;  /* Цвет при нажатии */
+        }
+
+        #temperatureIcon {
+            position: absolute;
+            left: 19px;
+            top: 38%;
+            transform: translateY(-50%);
+            width: 13px;
+            height: 30px;
+        }
+
+        #humidityIcon {
+            position: absolute;
+            left: 19px;
+            top: 38%;
+            transform: translateY(-50%);
+            width: 21px;
+            height: 30px;
+        }
+
+        #dewPointIcon {
+            position: absolute;
+            left: 19px;
+            top: 38%;
+            transform: translateY(-50%);
+            width: 30px;
+            height: 30px;
         }
 
         .pressure-widget {
@@ -166,6 +194,7 @@
         <div class="widget-title">Улица</div>
         <div class="widget-title">Дом</div>
         <div class="widget">
+            <img id="temperatureIcon" src="/temperature.png">
             <h2>Температура</h2>
             <div class="value" id="temperature"></div>
             <div class="label">Текущая температура</div>
@@ -174,6 +203,7 @@
             </div>
         </div>
         <div class="widget">
+            <img id="temperatureIcon" src="/temperature.png">
             <h2>Температура</h2>
             <div class="value" id="homeTemp"></div>
             <div class="label">Текущая температура</div>
@@ -182,6 +212,7 @@
             </div>
         </div>
         <div class="widget">
+            <img id="humidityIcon" src="/humidity.png">
             <h2>Влажность</h2>
             <div class="value" id="humidity"></div>
             <div class="label">Относительная влажность</div>
@@ -190,6 +221,7 @@
             </div>
         </div>
         <div class="widget">
+            <img id="humidityIcon" src="/humidity.png">
             <h2>Влажность</h2>
             <div class="value" id="homeHum"></div>
             <div class="label">Относительная влажность</div>
@@ -198,6 +230,7 @@
             </div>
         </div>
         <div class="widget">
+            <img id="dewPointIcon" src="/dew_point.png">
             <h2>Точка росы</h2>
             <div class="value" id="dewPoint"></div>
             <div class="label">Температура точки росы</div>
@@ -206,6 +239,7 @@
             </div>
         </div>
         <div class="widget">
+            <img id="dewPointIcon" src="/dew_point.png">
             <h2>Точка росы</h2>
             <div class="value" id="homeDP"></div>
             <div class="label">Температура точки росы</div>
@@ -234,7 +268,7 @@
         <form action="/REMOVED" method="POST">
             <button type="submit" id="Button" class="widget">Настройки</button>
         </form>
-        <form action="/about" method="POST">
+        <form action="/about" method="POST" style="justify-self: end;">
             <button type="submit" id="Button" class="widget">About</button>
         </form>
     </div>
