@@ -81,8 +81,6 @@ int month = -1;
 // Переменная для хранения текущей страницы Nextion
 String currentPage = "page0";
 
-// Буфер для входящих сообщений от Nextion
-//String nextionMsg = "";
 
 // -------------------------- Функция расчета точки росы -----------------------------
 float calculateDewPoint(float temperature, float humidity)
@@ -264,6 +262,13 @@ void handleRestart() {
     server.send(200, "text/plain", "ESP32 is restarting...");
     delay(1000);
     ESP.restart();
+}
+
+void handleRestartFromNextion() {
+  
+  server.send(200, "text/plain", "ESP32 is restarting...");
+  delay(1000);
+  ESP.restart();
 }
 
 void resetNRF905() {
@@ -745,7 +750,7 @@ void processNextionMessageBinary(const uint8_t* msg, size_t len) {
     uint8_t compID = msg[2];
     if (compID == 0x03) {
       Serial.println("Нажата кнопка b2");
-      handleRestart();
+      handleRestartFromNextion();
     }
     else if (compID == 0x04) {
       Serial.println("Нажата кнопка b3");
@@ -773,6 +778,8 @@ void processNextionTask(void * parameter) {
   const size_t bufSize = 32;
   uint8_t buffer[bufSize];
   size_t bufIndex = 0;
+  unsigned long lastUpdateTime = millis();
+  
 
   for (;;) {
     // Читаем доступные байты с Nextion (например, через HardwareSerial nextion)
@@ -796,6 +803,18 @@ void processNextionTask(void * parameter) {
         bufIndex = 0;
       }
     }
+
+        // Периодически отправляем данные, если на активной странице с показаниями
+        if (millis() - lastUpdateTime > 1000) {  // раз в 1 секунду
+          if (currentPage == "page0") {
+            sendPage0Data();
+          }
+          else if (currentPage == "page1") {
+            sendPage1Data();
+          }
+          lastUpdateTime = millis();
+        }
+
     vTaskDelay(15 / portTICK_PERIOD_MS);
   }
 }
@@ -828,57 +847,6 @@ void processNextionTask(void * parameter) {
 //   }
 // }
 
-// void sendGraphData(const char* waveformID, int channel, int value) {
-//   nextion.print("add ");
-//   nextion.print(waveformID); // id графика
-//   nextion.print(",");
-//   nextion.print(channel);
-//   nextion.print(",");
-//   nextion.print(value);
-//   nextion.write(0xFF);
-//   nextion.write(0xFF);
-//   nextion.write(0xFF);
-// }
-
-// void sendCommand(const char* command, int value) {
-//     nextion.print(command); // Отправляем команду (например, x0.val=)
-//     nextion.print(value);   // Отправляем значение
-//     nextion.write(0xFF);    // Конец команды
-//     nextion.write(0xFF);
-//     nextion.write(0xFF);
-// }
-
-// void taskSendDataToNextion(void *pvParameters) {
-//     while (1) {
-//       // Масштабируем значения до целых чисел
-//       int temp_int = temperature * 100;
-//       int dew_int = dewPoint * 100;
-//       int hum_int = humidity * 100;
-//       int press_int = pressure * 100;
-//       // Отправляем на Nextion
-//       sendCommand("x0.val=", temp_int);
-//       sendCommand("x1.val=", dew_int);
-//       sendCommand("x3.val=", hum_int);
-//       sendCommand("x2.val=", press_int);
-//       vTaskDelay(pdMS_TO_TICKS(5000));
-//     }
-// }
-
-// void taskSendGraphToNextion(void *pvParameters) {
-//     while (1) {
-//         int scaledTemperature = map(temperature, -40, 40, 0, 255); // Масштабируем
-//         int scaledDewPoint = map(dewPoint, -40, 40, 0, 255); 
-//         int scaledHumidity = map(humidity, 0, 100, 0, 255);
-//         int scaledPressure = map(pressure, 980, 1025, 0, 255);
-
-//         sendGraphData("1", 0, scaledTemperature);        
-//         sendGraphData("4", 0, scaledHumidity);
-//         sendGraphData("3", 0, scaledPressure);
-//         sendGraphData("1", 1, scaledDewPoint);
-
-//         vTaskDelay(pdMS_TO_TICKS(10000));
-//     }
-//}
 // ----------------------------- Setup -----------------------------
 void setup()
 {
@@ -976,8 +944,6 @@ void setup()
 
   xTaskCreate(taskNRF905, "NRF905 Receiver", 2048, NULL, 5, NULL);
   xTaskCreate(taskBMP280, "BMP280 Sensor", 2048, NULL, 4, NULL);
-  //xTaskCreate(taskSendDataToNextion, "Send Data to Nextion Task", 4096, NULL, 2, NULL);
-  //xTaskCreate(taskSendGraphToNextion, "Send Graph Data", 4096, NULL, 2, NULL);
   xTaskCreate(taskGetTime, "Get NTP Time", 4096, NULL, 3, NULL);
   xTaskCreatePinnedToCore(taskSendDataToInfluxDB, "InfluxDBTask", 10000, NULL, 1, NULL, 1);
   xTaskCreate(taskWebServer, "Web Server", 16384, NULL, 5, &taskWebServerHandle);
