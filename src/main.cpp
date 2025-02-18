@@ -82,7 +82,7 @@ int month = -1;
 String currentPage = "page0";
 
 // Буфер для входящих сообщений от Nextion
-String nextionMsg = "";
+//String nextionMsg = "";
 
 // -------------------------- Функция расчета точки росы -----------------------------
 float calculateDewPoint(float temperature, float humidity)
@@ -711,73 +711,92 @@ void syncWebServerButtonState() {
   nextion.write(0xFF);
 }
 
-void processNextionMessage(const String &msg) {
-  Serial.println("Nextion msg: " + msg);
-  
-  if (msg.startsWith("PAGE:")) {
-    // Обновляем текущую страницу
-    currentPage = msg.substring(5);
-    Serial.println("Текущая страница изменена на: " + currentPage);
+// Обработчик бинарного сообщения от Nextion
+void processNextionMessageBinary(const uint8_t* msg, size_t len) {
+  // Минимальная длина сообщения должна быть 5 байт
+  if (len < 5) return;
+
+  // Проверяем, что последние три байта равны 0xFF
+  if (!(msg[len-1] == 0xFF && msg[len-2] == 0xFF && msg[len-3] == 0xFF)) return;
+
+  if (msg[0] == 0x66) {
+    // Событие смены страницы
+    uint8_t pageIndex = msg[1];
+    switch (pageIndex) {
+      case 0x00:
+        currentPage = "page0";
+        break;
+      case 0x01:
+        currentPage = "page1";
+        break;
+      case 0x02:
+        currentPage = "page2";
+        break;
+      default:
+        currentPage = "unknown";
+        break;
+    }
+    Serial.print("Смена страницы: ");
+    Serial.println(currentPage);
   }
-  else if (currentPage == "page2") {  
-    // Обработка команд на странице настроек (page2)
-    if (msg == "b2") {
+  else if (msg[0] == 0x65) {
+    // Событие от компонента
+    // Формат: 65, <PageID>, <ComponentID>, <EventValue>, FF, FF, FF
+    uint8_t compID = msg[2];
+    if (compID == 0x03) {
+      Serial.println("Нажата кнопка b2");
       handleRestart();
     }
-    else if (msg == "b3") {
+    else if (compID == 0x04) {
+      Serial.println("Нажата кнопка b3");
       resetNRF905();
     }
-    else if (msg.startsWith("bt0=")) {
-      // Dual-state кнопка для управления веб-сервером
-      String state = msg.substring(4);  // ожидаем "1" или "0"
-      if (state == "1") {
-        startWebServer();
-        nextion.print("t0.txt=\"Running\"");
-        nextion.write(0xFF);
-        nextion.write(0xFF);
-        nextion.write(0xFF);
-      }
-      else if (state == "0") {
+    else if (compID == 0x06) {
+      Serial.println("Нажата кнопка bt0");
+      // Переключаем веб-сервер
+      if (webServerRunning) {
         stopWebServer();
         nextion.print("t0.txt=\"Stopped\"");
-        nextion.write(0xFF);
-        nextion.write(0xFF);
-        nextion.write(0xFF);
+      } else {
+        startWebServer();
+        nextion.print("t0.txt=\"Running\"");
       }
-      // Синхронизируем состояние dual-state кнопки с текущим состоянием сервера
+      nextion.write(0xFF); nextion.write(0xFF); nextion.write(0xFF);
+      // Синхронизируем состояние dual-state кнопки
       syncWebServerButtonState();
     }
   }
 }
 
+
 void processNextionTask(void * parameter) {
-  unsigned long lastUpdateTime = millis();
-  
+  const size_t bufSize = 32;
+  uint8_t buffer[bufSize];
+  size_t bufIndex = 0;
+
   for (;;) {
-    // Читаем данные из последовательного порта Nextion
+    // Читаем доступные байты с Nextion (например, через HardwareSerial nextion)
     while (nextion.available()) {
-      char c = nextion.read();
-      // Предполагаем, что сообщение завершается символом новой строки '\n'
-      if (c == '\n') {
-        processNextionMessage(nextionMsg);
-        nextionMsg = "";
-      } else {
-        nextionMsg += c;
+      uint8_t b = nextion.read();
+      // Добавляем байт в буфер, если есть место
+      if (bufIndex < bufSize) {
+        buffer[bufIndex++] = b;
+      }
+      // Если получено три 0xFF подряд, считаем, что пакет завершён
+      if (bufIndex >= 3 &&
+          buffer[bufIndex-1] == 0xFF &&
+          buffer[bufIndex-2] == 0xFF &&
+          buffer[bufIndex-3] == 0xFF) {
+        // Обрабатываем пакет
+        processNextionMessageBinary(buffer, bufIndex);
+        bufIndex = 0; // очищаем буфер для следующего пакета
+      }
+      // Если буфер переполнен без корректного завершения, сбрасываем его
+      if (bufIndex >= bufSize) {
+        bufIndex = 0;
       }
     }
-    
-    // Периодически отправляем данные, если на активной странице с показаниями
-    if (millis() - lastUpdateTime > 1000) {  // раз в 1 секунду
-      if (currentPage == "page0") {
-        sendPage0Data();
-      }
-      else if (currentPage == "page1") {
-        sendPage1Data();
-      }
-      lastUpdateTime = millis();
-    }
-    
-    vTaskDelay(50 / portTICK_PERIOD_MS);  // небольшой delay
+    vTaskDelay(15 / portTICK_PERIOD_MS);
   }
 }
 // void taskSerialPrint(void *pvParameters)
