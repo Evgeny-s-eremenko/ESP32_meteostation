@@ -30,6 +30,11 @@ const char* influxDBHost = "192.168.1.214";
 const int influxDBPort = 8086;
 const char* influxDBDatabase = "weather_data";
 
+// Дескриптор задачи веб-сервера
+TaskHandle_t taskWebServerHandle = NULL;
+// Флаг, показывающий, работает ли сервер
+bool webServerRunning = false;
+
 // ---------------------------- Пины и устройства ----------------------------
 #define NRF905_SPI_SCK 14
 #define NRF905_SPI_MISO 12
@@ -72,6 +77,12 @@ volatile float homeDP = 0.0f;
 volatile float trend = 0.0f;
 float forecast = 0;
 int month = -1;
+
+// Переменная для хранения текущей страницы Nextion
+String currentPage = "page0";
+
+// Буфер для входящих сообщений от Nextion
+String nextionMsg = "";
 
 // -------------------------- Функция расчета точки росы -----------------------------
 float calculateDewPoint(float temperature, float humidity)
@@ -490,6 +501,49 @@ void taskSendDataToInfluxDB(void *pvParameters) {
     }
 }
 
+// Функция запуска веб-сервера
+void startWebServer() {
+  if (!webServerRunning) {
+    if (taskWebServerHandle == NULL) {
+      // Если задача ещё не создана, создаём её
+      xTaskCreate(
+        taskWebServer,        // Функция задачи
+        "WebServerTask",      // Имя задачи
+        16384,                 // Размер стека
+        NULL,                 // Параметры (нет)
+        5,                    // Приоритет
+        &taskWebServerHandle  // Дескриптор задачи
+      );
+    } else {
+      // Если задача уже создана, но была приостановлена, возобновляем её
+      server.begin();  // Запускаем сервер
+      webServerRunning = true;
+      vTaskResume(taskWebServerHandle);
+      Serial.println("WebServer: возобновлён");
+    }
+  }
+}
+
+void stopWebServer() {
+  if (webServerRunning) {
+    server.stop();  // Останавливаем сервер
+    webServerRunning = false;
+    vTaskSuspend(taskWebServerHandle);  // Приостанавливаем задачу
+    Serial.println("WebServer: остановлен");
+  }
+}
+
+// Пример callback'а, который вызывается при нажатии кнопки на Nextion
+// (Например, этот callback вызывается из обработчика событий Nextion)
+void nextionButtonCallback() {
+  // Переключаем состояние веб-сервера
+  if (webServerRunning) {
+    stopWebServer();
+  } else {
+    startWebServer();
+  }
+}
+
 void taskWebServer(void *pvParameters)
 {
   while (true)
@@ -591,6 +645,152 @@ void taskForecast(void *pvParameters) {
   }
 }
 
+// Функция отправки данных на экран для page0
+void sendPage0Data() {
+  String cmd;
+  
+  // t0: humidity
+  cmd = "t0.txt=\"" + String(humidity) + "%\"";
+  nextion.print(cmd);
+  nextion.write(0xFF); nextion.write(0xFF); nextion.write(0xFF);
+  
+  // t1: temperature
+  cmd = "t1.txt=\"" + String(temperature) + "°C\"";
+  nextion.print(cmd);
+  nextion.write(0xFF); nextion.write(0xFF); nextion.write(0xFF);
+  
+  // t3: dewpoint
+  cmd = "t3.txt=\"" + String(dewPoint) + "°C\"";
+  nextion.print(cmd);
+  nextion.write(0xFF); nextion.write(0xFF); nextion.write(0xFF);
+  
+  // t2: pressure
+  cmd = "t2.txt=\"" + String(pressure) + " hPa\"";
+  nextion.print(cmd);
+  nextion.write(0xFF); nextion.write(0xFF); nextion.write(0xFF);
+  
+  // p0: картинка, определяем id по значению forecast
+  int pic;
+  if (forecast < 2)
+    pic = 7;
+  else if (forecast < 5)
+    pic = 5;
+  else if (forecast < 7)
+    pic = 4;
+  else
+    pic = 6;
+  
+  cmd = "p0.pic=" + String(pic);
+  nextion.print(cmd);
+  nextion.write(0xFF); nextion.write(0xFF); nextion.write(0xFF);
+}
+
+// Функция отправки данных на экран для page1
+void sendPage1Data() {
+  String cmd;
+  
+  // t0: homeHum
+  cmd = "t0.txt=\"" + String(homeHum) + "%\"";
+  nextion.print(cmd);
+  nextion.write(0xFF); nextion.write(0xFF); nextion.write(0xFF);
+  
+  // t1: homeTemp
+  cmd = "t1.txt=\"" + String(homeTemp) + "°C\"";
+  nextion.print(cmd);
+  nextion.write(0xFF); nextion.write(0xFF); nextion.write(0xFF);
+  
+  // t3: homeDP
+  cmd = "t3.txt=\"" + String(homeDP) + "°C\"";
+  nextion.print(cmd);
+  nextion.write(0xFF); nextion.write(0xFF); nextion.write(0xFF);
+  
+  // t2: pressure (используем ту же переменную)
+  cmd = "t2.txt=\"" + String(pressure) + " hPa\"";
+  nextion.print(cmd);
+  nextion.write(0xFF); nextion.write(0xFF); nextion.write(0xFF);
+}
+
+// Функция синхронизации состояния кнопки bt0 с флагом webServerRunning
+void syncWebServerButtonState() {
+  if (webServerRunning) {
+    nextion.print("bt0.val=1");
+  } else {
+    nextion.print("bt0.val=0");
+  }
+  nextion.write(0xFF);
+  nextion.write(0xFF);
+  nextion.write(0xFF);
+}
+
+void processNextionMessage(const String &msg) {
+  Serial.println("Nextion msg: " + msg);
+  
+  if (msg.startsWith("PAGE:")) {
+    // Обновляем текущую страницу
+    currentPage = msg.substring(5);
+    Serial.println("Текущая страница изменена на: " + currentPage);
+  }
+  else if (currentPage == "page2") {  
+    // Обработка команд на странице настроек (page2)
+    if (msg == "b2") {
+      handleRestart();
+    }
+    else if (msg == "b3") {
+      resetNRF905();
+    }
+    else if (msg.startsWith("bt0=")) {
+      // Dual-state кнопка для управления веб-сервером
+      String state = msg.substring(4);  // ожидаем "1" или "0"
+      if (state == "1") {
+        startWebServer();
+        nextion.print("t0.txt=\"Running\"");
+        nextion.write(0xFF);
+        nextion.write(0xFF);
+        nextion.write(0xFF);
+      }
+      else if (state == "0") {
+        stopWebServer();
+        nextion.print("t0.txt=\"Stopped\"");
+        nextion.write(0xFF);
+        nextion.write(0xFF);
+        nextion.write(0xFF);
+      }
+      // Синхронизируем состояние dual-state кнопки с текущим состоянием сервера
+      syncWebServerButtonState();
+    }
+  }
+}
+
+void processNextionTask(void * parameter) {
+  unsigned long lastUpdateTime = millis();
+  
+  for (;;) {
+    // Читаем данные из последовательного порта Nextion
+    while (nextion.available()) {
+      char c = nextion.read();
+      // Предполагаем, что сообщение завершается символом новой строки '\n'
+      if (c == '\n') {
+        processNextionMessage(nextionMsg);
+        nextionMsg = "";
+      } else {
+        nextionMsg += c;
+      }
+    }
+    
+    // Периодически отправляем данные, если на активной странице с показаниями
+    if (millis() - lastUpdateTime > 1000) {  // раз в 1 секунду
+      if (currentPage == "page0") {
+        sendPage0Data();
+      }
+      else if (currentPage == "page1") {
+        sendPage1Data();
+      }
+      lastUpdateTime = millis();
+    }
+    
+    vTaskDelay(50 / portTICK_PERIOD_MS);  // небольшой delay
+  }
+}
 // void taskSerialPrint(void *pvParameters)
 // {
 //   while (true)
@@ -620,62 +820,62 @@ void taskForecast(void *pvParameters) {
 //   }
 // }
 
-void sendGraphData(const char* waveformID, int channel, int value) {
-  nextion.print("add ");
-  nextion.print(waveformID); // id графика
-  nextion.print(",");
-  nextion.print(channel);
-  nextion.print(",");
-  nextion.print(value);
-  nextion.write(0xFF);
-  nextion.write(0xFF);
-  nextion.write(0xFF);
-}
+// void sendGraphData(const char* waveformID, int channel, int value) {
+//   nextion.print("add ");
+//   nextion.print(waveformID); // id графика
+//   nextion.print(",");
+//   nextion.print(channel);
+//   nextion.print(",");
+//   nextion.print(value);
+//   nextion.write(0xFF);
+//   nextion.write(0xFF);
+//   nextion.write(0xFF);
+// }
 
-void sendCommand(const char* command, int value) {
-    nextion.print(command); // Отправляем команду (например, x0.val=)
-    nextion.print(value);   // Отправляем значение
-    nextion.write(0xFF);    // Конец команды
-    nextion.write(0xFF);
-    nextion.write(0xFF);
-}
+// void sendCommand(const char* command, int value) {
+//     nextion.print(command); // Отправляем команду (например, x0.val=)
+//     nextion.print(value);   // Отправляем значение
+//     nextion.write(0xFF);    // Конец команды
+//     nextion.write(0xFF);
+//     nextion.write(0xFF);
+// }
 
-void taskSendDataToNextion(void *pvParameters) {
-    while (1) {
-      // Масштабируем значения до целых чисел
-      int temp_int = temperature * 100;
-      int dew_int = dewPoint * 100;
-      int hum_int = humidity * 100;
-      int press_int = pressure * 100;
-      // Отправляем на Nextion
-      sendCommand("x0.val=", temp_int);
-      sendCommand("x1.val=", dew_int);
-      sendCommand("x3.val=", hum_int);
-      sendCommand("x2.val=", press_int);
-      vTaskDelay(pdMS_TO_TICKS(5000));
-    }
-}
+// void taskSendDataToNextion(void *pvParameters) {
+//     while (1) {
+//       // Масштабируем значения до целых чисел
+//       int temp_int = temperature * 100;
+//       int dew_int = dewPoint * 100;
+//       int hum_int = humidity * 100;
+//       int press_int = pressure * 100;
+//       // Отправляем на Nextion
+//       sendCommand("x0.val=", temp_int);
+//       sendCommand("x1.val=", dew_int);
+//       sendCommand("x3.val=", hum_int);
+//       sendCommand("x2.val=", press_int);
+//       vTaskDelay(pdMS_TO_TICKS(5000));
+//     }
+// }
 
-void taskSendGraphToNextion(void *pvParameters) {
-    while (1) {
-        int scaledTemperature = map(temperature, -40, 40, 0, 255); // Масштабируем
-        int scaledDewPoint = map(dewPoint, -40, 40, 0, 255); 
-        int scaledHumidity = map(humidity, 0, 100, 0, 255);
-        int scaledPressure = map(pressure, 980, 1025, 0, 255);
+// void taskSendGraphToNextion(void *pvParameters) {
+//     while (1) {
+//         int scaledTemperature = map(temperature, -40, 40, 0, 255); // Масштабируем
+//         int scaledDewPoint = map(dewPoint, -40, 40, 0, 255); 
+//         int scaledHumidity = map(humidity, 0, 100, 0, 255);
+//         int scaledPressure = map(pressure, 980, 1025, 0, 255);
 
-        sendGraphData("1", 0, scaledTemperature);        
-        sendGraphData("4", 0, scaledHumidity);
-        sendGraphData("3", 0, scaledPressure);
-        sendGraphData("1", 1, scaledDewPoint);
+//         sendGraphData("1", 0, scaledTemperature);        
+//         sendGraphData("4", 0, scaledHumidity);
+//         sendGraphData("3", 0, scaledPressure);
+//         sendGraphData("1", 1, scaledDewPoint);
 
-        vTaskDelay(pdMS_TO_TICKS(10000));
-    }
-}
+//         vTaskDelay(pdMS_TO_TICKS(10000));
+//     }
+//}
 // ----------------------------- Setup -----------------------------
 void setup()
 {
   Serial.begin(115200);
-  nextion.begin(9600, SERIAL_8N1, RX2, TX2); // Инициализация Serial2
+  nextion.begin(115200, SERIAL_8N1, RX2, TX2); // Инициализация Serial2
   Serial.println("ESP32 + Nextion Initialized");
 
   // Настройка пина для управления PWR_UP nRF905
@@ -768,12 +968,13 @@ void setup()
 
   xTaskCreate(taskNRF905, "NRF905 Receiver", 2048, NULL, 5, NULL);
   xTaskCreate(taskBMP280, "BMP280 Sensor", 2048, NULL, 4, NULL);
-  xTaskCreate(taskSendDataToNextion, "Send Data to Nextion Task", 4096, NULL, 2, NULL);
-  xTaskCreate(taskSendGraphToNextion, "Send Graph Data", 4096, NULL, 2, NULL);
+  //xTaskCreate(taskSendDataToNextion, "Send Data to Nextion Task", 4096, NULL, 2, NULL);
+  //xTaskCreate(taskSendGraphToNextion, "Send Graph Data", 4096, NULL, 2, NULL);
   xTaskCreate(taskGetTime, "Get NTP Time", 4096, NULL, 3, NULL);
   xTaskCreatePinnedToCore(taskSendDataToInfluxDB, "InfluxDBTask", 10000, NULL, 1, NULL, 1);
-  xTaskCreate(taskWebServer, "Web Server", 16384, NULL, 5, NULL);
+  xTaskCreate(taskWebServer, "Web Server", 16384, NULL, 5, &taskWebServerHandle);
   xTaskCreate(taskForecast, "Forecast task", 2048, NULL, 1, NULL);
+  xTaskCreate(processNextionTask, "Nextion", 4096, NULL, 3, NULL);
   //xTaskCreate(taskSerialPrint, "Serial Print", 2048, NULL, 1, NULL);
 }
 
