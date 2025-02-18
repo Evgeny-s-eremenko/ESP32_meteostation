@@ -533,17 +533,6 @@ void stopWebServer() {
   }
 }
 
-// Пример callback'а, который вызывается при нажатии кнопки на Nextion
-// (Например, этот callback вызывается из обработчика событий Nextion)
-void nextionButtonCallback() {
-  // Переключаем состояние веб-сервера
-  if (webServerRunning) {
-    stopWebServer();
-  } else {
-    startWebServer();
-  }
-}
-
 void taskWebServer(void *pvParameters)
 {
   while (true)
