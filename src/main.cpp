@@ -11,9 +11,8 @@
 #include <time.h>
 #include <Forecaster.h>
 
-Forecaster cond;
 
-// put function declarations here:
+
 // ----------------------------- Wi-Fi и сервер -----------------------------
 const char *ssid = "REMOVED";
 const char *password = "REMOVED";
@@ -34,6 +33,8 @@ const char* influxDBDatabase = "REMOVED";
 TaskHandle_t taskWebServerHandle = NULL;
 // Флаг, показывающий, работает ли сервер
 bool webServerRunning = false;
+
+Forecaster cond;
 
 // ---------------------------- Пины и устройства ----------------------------
 #define NRF905_SPI_SCK 14
