@@ -29,8 +29,11 @@ const char* influxDBHost = "REMOVED";
 const int influxDBPort = 8086;
 const char* influxDBDatabase = "REMOVED";
 
-// Дескриптор задачи веб-сервера
+// Дескрипторы задач
 TaskHandle_t taskWebServerHandle = NULL;
+TaskHandle_t taskNRF905Handle = NULL;
+TaskHandle_t taskCO2ReadHandle = NULL;
+TaskHandle_t processNextionTaskHandle = NULL;
 // Флаг, показывающий, работает ли сервер
 bool webServerRunning = false;
 
@@ -50,6 +53,13 @@ HardwareSerial nextion(2); // Используем Serial2 для связи с 
 #define TX2 17  // TX пин ESP32
 
 
+//----------------------- Определение пинов Serial1 --------------------------
+
+HardwareSerial mh19(1); //Serial1 для датчика CO2
+#define RX1 32
+#define TX1 33
+
+
 Adafruit_BME280 bme;                                  // Датчик давления BMP280
 RH_NRF905 driver(NRF905_CE, NRF905_TX_EN, NRF905_CS); // Радиомодуль nRF905
 WebServer server(80);                                 // Веб-сервер на порту 80
@@ -58,6 +68,7 @@ WebServer server(80);                                 // Веб-сервер н�
 // -------------------------- Объявления функций (прототипы) --------------------------
 void sendGraphData();
 void sendCommand();
+void syncWebServerButtonState();
 void taskSendDataToNextion();
 void handleGraphData();
 void handleRoot();
@@ -78,6 +89,7 @@ volatile float homeDP = 0.0f;
 volatile float trend = 0.0f;
 float forecast = 0;
 int month = -1;
+int ppm = 400;
 
 // Переменная для хранения текущей страницы Nextion
 String currentPage = "page0";
@@ -116,6 +128,19 @@ void handleGraphData() {
 
   String json;
   serializeJson(doc, json);
+  server.send(200, "application/json", json);
+}
+
+void handleGetTasksState() {
+  String json = "{";
+
+  json += "\"taskWebServer\": " + String(eTaskGetState(taskWebServerHandle) == eRunning || eTaskGetState(taskWebServerHandle) == eReady ? "true" : "false");
+  json += ", \"taskNextion\": " + String(eTaskGetState(processNextionTaskHandle) == eRunning || eTaskGetState(processNextionTaskHandle) == eReady ? "true" : "false");
+  json += ", \"taskNRF905\": " + String(eTaskGetState(taskNRF905Handle) == eRunning || eTaskGetState(taskNRF905Handle) == eReady ? "true" : "false");
+  json += ", \"taskCO2Read\": " + String(eTaskGetState(taskCO2ReadHandle) == eRunning || eTaskGetState(taskCO2ReadHandle) == eReady ? "true" : "false");
+
+  json += "}";
+  
   server.send(200, "application/json", json);
 }
 
@@ -705,6 +730,10 @@ void sendPage1Data() {
   nextion.write(0xFF); nextion.write(0xFF); nextion.write(0xFF);
 }
 
+void sendPage2Data() {
+  syncWebServerButtonState();
+}
+
 // Функция синхронизации состояния кнопки bt0 с флагом webServerRunning
 void syncWebServerButtonState() {
   if (webServerRunning) {
@@ -762,10 +791,10 @@ void processNextionMessageBinary(const uint8_t* msg, size_t len) {
       // Переключаем веб-сервер
       if (webServerRunning) {
         stopWebServer();
-        nextion.print("t0.txt=\"Stopped\"");
+        //nextion.print("t0.txt=\"Stopped\"");
       } else {
         startWebServer();
-        nextion.print("t0.txt=\"Running\"");
+        //nextion.print("t0.txt=\"Running\"");
       }
       nextion.write(0xFF); nextion.write(0xFF); nextion.write(0xFF);
       // Синхронизируем состояние dual-state кнопки
@@ -813,12 +842,56 @@ void processNextionTask(void * parameter) {
           else if (currentPage == "page1") {
             sendPage1Data();
           }
+          else if (currentPage == "page2") {
+            sendPage2Data();
+          }
           lastUpdateTime = millis();
         }
 
     vTaskDelay(15 / portTICK_PERIOD_MS);
   }
 }
+
+void taskCO2Read(void *pvParameters) {
+  byte cmd[9] = {0xFF, 0x01, 0x86, 0x00, 0x00, 0x00, 0x00, 0x00, 0x79};
+  byte response[9];
+  const int MAX_ERRORS = 3;
+  int errorCount = 0;
+  mh19.setTimeout(1000);
+
+  while (true) {
+    mh19.write(cmd, 9);
+    size_t bytesRead = mh19.readBytes(response, 9);
+
+    if (bytesRead == 9) {
+      byte checksum = 0;
+      for (int i = 1; i < 8; i++) checksum += response[i];
+      checksum = 0xFF - checksum + 1;
+
+      if (response[8] == checksum) {
+        int ppm = (256 * response[2]) + response[3];
+        Serial.printf("CO2: %d ppm\n", ppm);
+        errorCount = 0; // Сброс ошибок при успехе
+      } else {
+        errorCount++;
+        Serial.printf("Ошибка CRC! Счётчик: %d/%d\n", errorCount, MAX_ERRORS);
+      }
+    } else {
+      errorCount++;
+      Serial.printf("Ошибка чтения! Счётчик: %d/%d\n", errorCount, MAX_ERRORS);
+    }
+
+    // Проверка на превышение ошибок
+    if (errorCount >= MAX_ERRORS) {
+      Serial.println("Удаляю задачу...");
+      mh19.end();
+      vTaskDelete(NULL);
+    }
+
+    vTaskDelay(5000 / portTICK_PERIOD_MS);
+  }
+}
+
 // void taskSerialPrint(void *pvParameters)
 // {
 //   while (true)
@@ -852,8 +925,9 @@ void processNextionTask(void * parameter) {
 void setup()
 {
   Serial.begin(115200);
-  nextion.begin(115200, SERIAL_8N1, RX2, TX2); // Инициализация Serial2
+  nextion.begin(115200, SERIAL_8N1, RX2, TX2); // Инициализация Serial2  
   Serial.println("ESP32 + Nextion Initialized");
+
 
   // Настройка пина для управления PWR_UP nRF905
   pinMode(NRF905_PWR_UP_PIN, OUTPUT);
@@ -871,6 +945,8 @@ void setup()
     return;
   }
   Serial.println("LittleFS mounted");
+
+  mh19.begin(9600, SERIAL_8N1, RX1, TX1);
 
   //Режим клиента
 
@@ -903,6 +979,8 @@ void setup()
   server.on("/nrfreset", HTTP_POST, handleNRFReset);
   server.serveStatic("/", LittleFS, "/");
   server.begin();
+
+  webServerRunning = true;
 
   // Инициализация радиомодуля
   if (!driver.init())
@@ -943,13 +1021,14 @@ void setup()
 
   // Создание задач FreeRTOS
 
-  xTaskCreate(taskNRF905, "NRF905 Receiver", 2048, NULL, 5, NULL);
+  xTaskCreate(taskNRF905, "NRF905 Receiver", 2048, NULL, 5, &taskNRF905Handle);
   xTaskCreate(taskBMP280, "BMP280 Sensor", 2048, NULL, 4, NULL);
+  xTaskCreate(taskCO2Read, "CO2 read task", 2048, NULL, 2, &taskCO2ReadHandle);
   xTaskCreate(taskGetTime, "Get NTP Time", 4096, NULL, 3, NULL);
-  xTaskCreatePinnedToCore(taskSendDataToInfluxDB, "InfluxDBTask", 10000, NULL, 1, NULL, 1);
+  xTaskCreate(taskSendDataToInfluxDB, "InfluxDBTask", 10000, NULL, 1, NULL);
   xTaskCreate(taskWebServer, "Web Server", 16384, NULL, 5, &taskWebServerHandle);
   xTaskCreate(taskForecast, "Forecast task", 2048, NULL, 1, NULL);
-  xTaskCreate(processNextionTask, "Nextion", 4096, NULL, 3, NULL);
+  xTaskCreate(processNextionTask, "Nextion", 4096, NULL, 3, &processNextionTaskHandle);
   //xTaskCreate(taskSerialPrint, "Serial Print", 2048, NULL, 1, NULL);
 }
 
