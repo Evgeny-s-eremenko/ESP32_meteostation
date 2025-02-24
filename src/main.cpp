@@ -30,12 +30,23 @@ const int influxDBPort = 8086;
 const char* influxDBDatabase = "weather_data";
 
 // Дескрипторы задач
-TaskHandle_t taskWebServerHandle = NULL;
-TaskHandle_t taskNRF905Handle = NULL;
-TaskHandle_t taskCO2ReadHandle = NULL;
-TaskHandle_t processNextionTaskHandle = NULL;
-// Флаг, показывающий, работает ли сервер
-bool webServerRunning = false;
+extern TaskHandle_t taskWebServerHandle = NULL;
+extern TaskHandle_t taskNRF905Handle = NULL;
+extern TaskHandle_t taskCO2ReadHandle = NULL;
+extern TaskHandle_t processNextionTaskHandle = NULL;
+extern TaskHandle_t taskBMP280Handle = NULL;
+extern TaskHandle_t taskSendDataToInfluxDBHandle = NULL;
+extern TaskHandle_t taskForecasterHandle = NULL;
+extern TaskHandle_t taskGetTimeHandle = NULL;
+// Флаги задач
+volatile bool webServerRunning = false;
+volatile bool nRF905Running = false;
+volatile bool CO2ReadRunning = false;
+volatile bool processNextionRunning = false;
+volatile bool BMP280Running = false;
+volatile bool sendDataToInfluxDBRunning = false;
+volatile bool forecasterRunning = false;
+volatile bool getTimeRunning = false;
 
 Forecaster cond;
 
@@ -132,16 +143,17 @@ void handleGraphData() {
 }
 
 void handleGetTasksState() {
-  String json = "{";
-
-  json += "\"taskWebServer\": " + String(eTaskGetState(taskWebServerHandle) == eRunning || eTaskGetState(taskWebServerHandle) == eReady ? "true" : "false");
-  json += ", \"taskNextion\": " + String(eTaskGetState(processNextionTaskHandle) == eRunning || eTaskGetState(processNextionTaskHandle) == eReady ? "true" : "false");
-  json += ", \"taskNRF905\": " + String(eTaskGetState(taskNRF905Handle) == eRunning || eTaskGetState(taskNRF905Handle) == eReady ? "true" : "false");
-  json += ", \"taskCO2Read\": " + String(eTaskGetState(taskCO2ReadHandle) == eRunning || eTaskGetState(taskCO2ReadHandle) == eReady ? "true" : "false");
-
-  json += "}";
-  
-  server.send(200, "application/json", json);
+  String stateJson = "{";
+  stateJson += "\"webServer\":" + String(webServerRunning ? "true" : "false") + ",";
+  stateJson += "\"nRF905\":" + String(nRF905Running ? "true" : "false");
+  stateJson += "\"CO2\":" + String(CO2ReadRunning ? "true" : "false");
+  stateJson += "\"nextion\":" + String(processNextionRunning ? "true" : "false") + ",";
+  stateJson += "\"BMP280\":" + String(BMP280Running ? "true" : "false");
+  stateJson += "\"InfluxDB\":" + String(sendDataToInfluxDBRunning ? "true" : "false");
+  stateJson += "\"Forecaster\":" + String(forecasterRunning ? "true" : "false");
+  stateJson += "\"NTP\":" + String(getTimeRunning ? "true" : "false");
+  stateJson += "}";
+  server.send(200, "application/json", stateJson);
 }
 
 void handleRoot()
@@ -520,6 +532,32 @@ int getMonth() {
   return -1;  // Ошибка получения месяца
 }
 
+// ----------------------- Функции запуска и остановки задач -------------
+
+
+void switchWebServer() {
+  if (taskWebServerHandle == NULL) {
+    xTaskCreatePinnedToCore(taskWebServer, "Web Server", 16384, NULL, 6, &taskWebServerHandle, 1);
+    webServerRunning = true;
+  } else {
+    vTaskDelete(taskWebServerHandle);
+    taskWebServerHandle = NULL;
+    webServerRunning = false;
+  }
+}
+
+void switchSendDataToInfluxDB() {
+    if (taskSendDataToInfluxDBHandle == NULL) {
+      xTaskCreate(taskSendDataToInfluxDB, "InfluxDBTask", 10000, NULL, 4, &taskSendDataToInfluxDBHandle);
+      sendDataToInfluxDBRunning = true;
+    } else {
+      vTaskDelete(taskSendDataToInfluxDBHandle);
+      taskSendDataToInfluxDBHandle = NULL;
+      sendDataToInfluxDBRunning = false;
+    }
+ }
+
+
 // --------------------------- Задачи FreeRTOS ---------------------------
 
 void taskSendDataToInfluxDB(void *pvParameters) {
@@ -532,37 +570,6 @@ void taskSendDataToInfluxDB(void *pvParameters) {
     }
 }
 
-// Функция запуска веб-сервера
-void startWebServer() {
-  if (!webServerRunning) {
-    if (taskWebServerHandle == NULL) {
-      // Если задача ещё не создана, создаём её
-      xTaskCreate(
-        taskWebServer,        // Функция задачи
-        "WebServerTask",      // Имя задачи
-        16384,                 // Размер стека
-        NULL,                 // Параметры (нет)
-        5,                    // Приоритет
-        &taskWebServerHandle  // Дескриптор задачи
-      );
-    } else {
-      // Если задача уже создана, но была приостановлена, возобновляем её
-      server.begin();  // Запускаем сервер
-      webServerRunning = true;
-      vTaskResume(taskWebServerHandle);
-      Serial.println("WebServer: возобновлён");
-    }
-  }
-}
-
-void stopWebServer() {
-  if (webServerRunning) {
-    server.stop();  // Останавливаем сервер
-    webServerRunning = false;
-    vTaskSuspend(taskWebServerHandle);  // Приостанавливаем задачу
-    Serial.println("WebServer: остановлен");
-  }
-}
 
 void taskWebServer(void *pvParameters)
 {
@@ -736,11 +743,8 @@ void sendPage2Data() {
 
 // Функция синхронизации состояния кнопки bt0 с флагом webServerRunning
 void syncWebServerButtonState() {
-  if (webServerRunning) {
-    nextion.print("bt0.val=1");
-  } else {
-    nextion.print("bt0.val=0");
-  }
+  nextion.print("bt0.val="); 
+  nextion.print(webServerRunning ? "1" : "0");
   nextion.write(0xFF);
   nextion.write(0xFF);
   nextion.write(0xFF);
@@ -789,14 +793,7 @@ void processNextionMessageBinary(const uint8_t* msg, size_t len) {
     else if (compID == 0x06) {
       Serial.println("Нажата кнопка bt0");
       // Переключаем веб-сервер
-      if (webServerRunning) {
-        stopWebServer();
-        //nextion.print("t0.txt=\"Stopped\"");
-      } else {
-        startWebServer();
-        //nextion.print("t0.txt=\"Running\"");
-      }
-      nextion.write(0xFF); nextion.write(0xFF); nextion.write(0xFF);
+      switchWebServer();
       // Синхронизируем состояние dual-state кнопки
       syncWebServerButtonState();
     }
@@ -886,9 +883,25 @@ void taskCO2Read(void *pvParameters) {
       Serial.println("Удаляю задачу...");
       mh19.end();
       vTaskDelete(NULL);
+      CO2ReadRunning = false;
     }
 
     vTaskDelay(5000 / portTICK_PERIOD_MS);
+  }
+}
+
+void taskMonitor(void *pvParameters) {
+  while (1) {
+      // Проверяем состояние задач и обновляем флаги
+      webServerRunning = (taskWebServerHandle != NULL);
+      nRF905Running = (taskNRF905Handle != NULL);
+      CO2ReadRunning = (taskCO2ReadHandle != NULL);
+      forecasterRunning = (taskForecasterHandle != NULL);
+      getTimeRunning = (taskGetTimeHandle != NULL);
+
+
+      // Ждем 5 секунд перед следующим обновлением
+      vTaskDelay(pdMS_TO_TICKS(500));
   }
 }
 
@@ -972,6 +985,7 @@ void setup()
   server.on("/update", HTTP_POST, handleUpdateEnd, handleUpdateUpload);
   server.on("/restart", handleRestart);
   server.on("/graph-data", handleGraphData);
+  server.on("/getTasksState", handleGetTasksState);
   server.on("/sysinfo", HTTP_GET, handleSysInfo);
   server.on("/bmeinfo", HTTP_GET, handleBMEInfo);
   server.on("/nrf905Status", HTTP_GET, handlenRFInfo);
@@ -1022,14 +1036,15 @@ void setup()
   // Создание задач FreeRTOS
 
   xTaskCreate(taskNRF905, "NRF905 Receiver", 2048, NULL, 5, &taskNRF905Handle);
-  xTaskCreate(taskBMP280, "BMP280 Sensor", 2048, NULL, 4, NULL);
+  xTaskCreate(taskBMP280, "BMP280 Sensor", 2048, NULL, 4, &taskBMP280Handle);
   xTaskCreate(taskCO2Read, "CO2 read task", 2048, NULL, 2, &taskCO2ReadHandle);
-  xTaskCreate(taskGetTime, "Get NTP Time", 4096, NULL, 3, NULL);
-  xTaskCreate(taskSendDataToInfluxDB, "InfluxDBTask", 10000, NULL, 1, NULL);
-  xTaskCreate(taskWebServer, "Web Server", 16384, NULL, 5, &taskWebServerHandle);
-  xTaskCreate(taskForecast, "Forecast task", 2048, NULL, 1, NULL);
+  xTaskCreate(taskGetTime, "Get NTP Time", 4096, NULL, 3, &taskGetTimeHandle);
+  xTaskCreate(taskSendDataToInfluxDB, "InfluxDBTask", 10000, NULL, 4, &taskSendDataToInfluxDBHandle);
+  xTaskCreatePinnedToCore(taskWebServer, "Web Server", 16384, NULL, 6, &taskWebServerHandle, 1);
+  xTaskCreate(taskForecast, "Forecast task", 2048, NULL, 1, &taskForecasterHandle);
   xTaskCreate(processNextionTask, "Nextion", 4096, NULL, 3, &processNextionTaskHandle);
   //xTaskCreate(taskSerialPrint, "Serial Print", 2048, NULL, 1, NULL);
+  xTaskCreate(taskMonitor, "Task Status", 2048, NULL, 3, NULL);
 }
 
 // ----------------------------- Main loop -----------------------------
