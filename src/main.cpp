@@ -654,9 +654,13 @@ void switchTaskNextion()  {
 
 void switchTaskBMP280() {
   if(taskBMP280Handle == NULL)  {
+    Serial.println("Запуск задачи BMP280...");
     xTaskCreate(taskBMP280, "BMP280 Sensor", 2048, NULL, 4, &taskBMP280Handle);
     BMP280Running = true;
   } else  {
+    Serial.println("Остановка задачи BMP280...");
+    Wire.end();
+    vTaskDelay(50 / portTICK_PERIOD_MS);
     vTaskDelete(taskBMP280Handle);
     taskBMP280Handle = NULL;
     BMP280Running = true;
@@ -790,17 +794,18 @@ void taskNRF905(void *pvParameters)
   }
 }
 
-void taskBMP280(void *pvParameters)
-{
-  while (true)
-  {
-    {
-      pressure = bme.readPressure() / 100.0f; // Получаем давление
-      homeTemp = bme.readTemperature();
-      homeHum = bme.readHumidity();
-      vTaskDelay(70 / portTICK_PERIOD_MS);
-      homeDP = calculatehomeDP(homeTemp, homeHum);
+void taskBMP280(void *pvParameters) {
+  while (true) {
+    if (!bme.begin(0x76)) { // Проверка датчика (I2C-адрес 0x76)
+      Serial.println("Ошибка связи с BMP280!");
+      vTaskDelay(5000 / portTICK_PERIOD_MS);
+      continue;
     }
+
+    pressure = bme.readPressure() / 100.0f; // Получаем давление
+    homeTemp = bme.readTemperature();
+    homeHum = bme.readHumidity();
+    homeDP = calculatehomeDP(homeTemp, homeHum);
 
     vTaskDelay(5000 / portTICK_PERIOD_MS); // Задержка 5 секунд
   }

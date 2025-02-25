@@ -6,6 +6,12 @@
         "fstream": "cpp",
         "limits": "cpp",
         "sstream": "cpp",
-        "utility": "cpp"
+        "utility": "cpp",
+        "array": "cpp",
+        "deque": "cpp",
+        "unordered_map": "cpp",
+        "unordered_set": "cpp",
+        "string_view": "cpp",
+        "initializer_list": "cpp"
     }
 }
