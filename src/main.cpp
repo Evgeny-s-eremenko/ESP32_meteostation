@@ -10,6 +10,7 @@
 #include <HTTPClient.h>
 #include <time.h>
 #include <Forecaster.h>
+#include <WebSocketsServer.h>
 
 
 
@@ -74,18 +75,24 @@ HardwareSerial mh19(1); //Serial1 для датчика CO2
 Adafruit_BME280 bme;                                  // Датчик давления BMP280
 RH_NRF905 driver(NRF905_CE, NRF905_TX_EN, NRF905_CS); // Радиомодуль nRF905
 WebServer server(80);                                 // Веб-сервер на порту 80
+WebSocketsServer webSocket(81);                       // WebSocket сервер на порту 81
 
 
 // -------------------------- Объявления функций (прототипы) --------------------------
 void sendGraphData();
 void sendCommand();
 void syncWebServerButtonState();
-void taskSendDataToNextion();
+void processNextionTask();
 void handleGraphData();
 void handleRoot();
 void taskWebServer(void *pvParameters);
+void processNextionTask(void *pvParameters);
+void taskForecast(void *pvParameters);
+void taskCO2Read(void *pvParameters);
+void taskGetTime(void *pvParameters);
 void taskNRF905(void *pvParameters);
 void taskBMP280(void *pvParameters);
+void taskSendDataToInfluxDB(void *pvParameters);
 //void taskSerialPrint(void *pvParameters);
 float calculateDewPoint(float temperature, float humidity);
 
@@ -145,16 +152,33 @@ void handleGraphData() {
 void handleGetTasksState() {
   String stateJson = "{";
   stateJson += "\"webServer\":" + String(webServerRunning ? "true" : "false") + ",";
-  stateJson += "\"nRF905\":" + String(nRF905Running ? "true" : "false");
-  stateJson += "\"CO2\":" + String(CO2ReadRunning ? "true" : "false");
+  stateJson += "\"nRF905\":" + String(nRF905Running ? "true" : "false") + ",";
+  stateJson += "\"CO2\":" + String(CO2ReadRunning ? "true" : "false") + ",";
   stateJson += "\"nextion\":" + String(processNextionRunning ? "true" : "false") + ",";
-  stateJson += "\"BMP280\":" + String(BMP280Running ? "true" : "false");
-  stateJson += "\"InfluxDB\":" + String(sendDataToInfluxDBRunning ? "true" : "false");
-  stateJson += "\"Forecaster\":" + String(forecasterRunning ? "true" : "false");
+  stateJson += "\"BMP280\":" + String(BMP280Running ? "true" : "false") + ",";
+  stateJson += "\"InfluxDB\":" + String(sendDataToInfluxDBRunning ? "true" : "false") + ",";
+  stateJson += "\"Forecaster\":" + String(forecasterRunning ? "true" : "false") + ",";
   stateJson += "\"NTP\":" + String(getTimeRunning ? "true" : "false");
   stateJson += "}";
+
   server.send(200, "application/json", stateJson);
 }
+
+void sendTaskStateUpdate() {
+  String stateJson = "{";
+  stateJson += "\"webServer\":" + String(webServerRunning ? "true" : "false") + ",";
+  stateJson += "\"nRF905\":" + String(nRF905Running ? "true" : "false") + ",";
+  stateJson += "\"CO2\":" + String(CO2ReadRunning ? "true" : "false") + ",";
+  stateJson += "\"nextion\":" + String(processNextionRunning ? "true" : "false") + ",";
+  stateJson += "\"BMP280\":" + String(BMP280Running ? "true" : "false") + ",";
+  stateJson += "\"InfluxDB\":" + String(sendDataToInfluxDBRunning ? "true" : "false") + ",";
+  stateJson += "\"Forecaster\":" + String(forecasterRunning ? "true" : "false") + ",";
+  stateJson += "\"NTP\":" + String(getTimeRunning ? "true" : "false");
+  stateJson += "}";
+
+  webSocket.broadcastTXT(stateJson);  // Отправляем обновлённые данные всем клиентам
+}
+
 
 void handleRoot()
 {
@@ -532,21 +556,51 @@ int getMonth() {
   return -1;  // Ошибка получения месяца
 }
 
+void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length) {
+  switch (type) {
+    case WStype_CONNECTED:
+      Serial.printf("Клиент %u подключился\n", num);
+      break;
+    case WStype_DISCONNECTED:
+      Serial.printf("Клиент %u отключился\n", num);
+      break;
+    case WStype_TEXT:
+      Serial.printf("Получено сообщение: %s\n", payload);
+      break;
+  }
+}
+
 // ----------------------- Функции запуска и остановки задач -------------
 
 
-void switchWebServer() {
+void switchTaskWebServer() {
   if (taskWebServerHandle == NULL) {
+    Serial.println("Запуск задачи WEB-сервера...");
+
+    server.begin();  // Инициализация HTTP-сервера
+    webSocket.begin();
+    webSocket.onEvent(webSocketEvent); // Назначаем обработчик событий WebSocket
+
     xTaskCreatePinnedToCore(taskWebServer, "Web Server", 16384, NULL, 6, &taskWebServerHandle, 1);
     webServerRunning = true;
   } else {
+    Serial.println("Остановка задачи WEB-сервера...");
+
+    server.stop();  // Завершаем HTTP-сервер
+    webSocket.disconnect(); // Закрываем WebSocket
+    webSocket.loop();  // Принудительно обновляем WebSocket-состояние
+
+    vTaskDelay(50 / portTICK_PERIOD_MS); // Даем время завершить соединения
+
     vTaskDelete(taskWebServerHandle);
     taskWebServerHandle = NULL;
     webServerRunning = false;
   }
+
+  sendTaskStateUpdate(); // Отправка обновленного состояния на веб-страницу
 }
 
-void switchSendDataToInfluxDB() {
+void switchTaskInfluxDB() {
     if (taskSendDataToInfluxDBHandle == NULL) {
       xTaskCreate(taskSendDataToInfluxDB, "InfluxDBTask", 10000, NULL, 4, &taskSendDataToInfluxDBHandle);
       sendDataToInfluxDBRunning = true;
@@ -555,8 +609,121 @@ void switchSendDataToInfluxDB() {
       taskSendDataToInfluxDBHandle = NULL;
       sendDataToInfluxDBRunning = false;
     }
+    sendTaskStateUpdate();
  }
 
+void switchTaskCO2Read() {
+    if(taskCO2ReadHandle == NULL) {
+      mh19.begin(9600, SERIAL_8N1, RX1, TX1);
+      xTaskCreate(taskCO2Read, "CO2 read task", 2048, NULL, 2, &taskCO2ReadHandle);
+      CO2ReadRunning = true;
+    } else {
+      mh19.end();
+      vTaskDelete(taskCO2ReadHandle);
+      taskCO2ReadHandle = NULL;
+      CO2ReadRunning = false;
+    }
+    sendTaskStateUpdate();
+}
+
+void switchTaskNRF905() {
+    if(taskNRF905Handle == NULL)  {
+      xTaskCreate(taskNRF905, "NRF905 Receiver", 2048, NULL, 5, &taskNRF905Handle);
+      nRF905Running = true;
+    } else  {
+      vTaskDelete(taskNRF905Handle);
+      taskNRF905Handle = NULL;
+      nRF905Running = false;
+    }
+    sendTaskStateUpdate();
+}
+
+void switchTaskNextion()  {
+  if(processNextionTaskHandle == NULL)  {
+    nextion.begin(115200, SERIAL_8N1, RX2, TX2);
+    xTaskCreate(processNextionTask, "Nextion", 4096, NULL, 3, &processNextionTaskHandle);
+    processNextionRunning = true;
+  } else  {
+    nextion.end();
+    vTaskDelete(processNextionTaskHandle);
+    processNextionTaskHandle = NULL;
+    processNextionRunning = false;    
+  }
+  sendTaskStateUpdate();
+}
+
+void switchTaskBMP280() {
+  if(taskBMP280Handle == NULL)  {
+    xTaskCreate(taskBMP280, "BMP280 Sensor", 2048, NULL, 4, &taskBMP280Handle);
+    BMP280Running = true;
+  } else  {
+    vTaskDelete(taskBMP280Handle);
+    taskBMP280Handle = NULL;
+    BMP280Running = true;
+  }
+  sendTaskStateUpdate();
+}
+
+void switchTaskForecaster() {
+  if(taskForecasterHandle == NULL)  {
+    cond.begin();
+    cond.setH(61);
+    xTaskCreate(taskForecast, "Forecast task", 2048, NULL, 1, &taskForecasterHandle);
+    forecasterRunning = true;
+  } else  {
+    vTaskDelete(taskForecasterHandle);
+    taskForecasterHandle = NULL;
+    forecasterRunning = true;
+  }
+  sendTaskStateUpdate();
+}
+
+void switchTaskNTP()  {
+  if(taskGetTimeHandle == NULL) {
+    configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
+    xTaskCreate(taskGetTime, "Get NTP Time", 4096, NULL, 3, &taskGetTimeHandle);
+    getTimeRunning = true;
+  } else  {
+    vTaskDelete(taskGetTimeHandle);
+    taskGetTimeHandle = NULL;
+    getTimeRunning = false;
+  }
+  sendTaskStateUpdate();
+}
+
+void handleTaskControl() {
+  if (!server.hasArg("task")) {
+      server.send(400, "text/plain", "Bad Request: Missing task parameter");
+      return;
+  }
+
+  String task = server.arg("task");
+
+  if (task == "CO2") {
+      switchTaskCO2Read();
+  } else if (task == "webServer") {
+      switchTaskWebServer();
+  } else if (task == "nRF905") {
+      switchTaskNRF905();
+  } else if (task == "nextion") {
+      switchTaskNextion();
+  } else if (task == "BMP280") {
+      switchTaskBMP280();
+  } else if (task == "InfluxDB") {
+      switchTaskInfluxDB();
+  } else if (task == "Forecaster") {
+      switchTaskForecaster();
+  } else if (task == "NTP") {
+      switchTaskNTP();
+  } else {
+      server.send(400, "text/plain", "Bad Request: Unknown task");
+      return;
+  }
+
+  // Возвращаем новый JSON со статусами
+  sendTaskStateUpdate();
+  server.send(200, "application/json", "{\"status\":\"ok\"}");
+}
 
 // --------------------------- Задачи FreeRTOS ---------------------------
 
@@ -576,6 +743,7 @@ void taskWebServer(void *pvParameters)
   while (true)
   {
     server.handleClient();               // Обработка запросов
+    webSocket.loop();
     vTaskDelay(10 / portTICK_PERIOD_MS); // Задержка, чтобы избежать перегрузки процессора
   }
 }
@@ -743,8 +911,11 @@ void sendPage2Data() {
 
 // Функция синхронизации состояния кнопки bt0 с флагом webServerRunning
 void syncWebServerButtonState() {
-  nextion.print("bt0.val="); 
-  nextion.print(webServerRunning ? "1" : "0");
+  if (webServerRunning) {
+    nextion.print("bt0.val=1");
+  } else {
+    nextion.print("bt0.val=0");
+  }
   nextion.write(0xFF);
   nextion.write(0xFF);
   nextion.write(0xFF);
@@ -793,7 +964,7 @@ void processNextionMessageBinary(const uint8_t* msg, size_t len) {
     else if (compID == 0x06) {
       Serial.println("Нажата кнопка bt0");
       // Переключаем веб-сервер
-      switchWebServer();
+      switchTaskWebServer();
       // Синхронизируем состояние dual-state кнопки
       syncWebServerButtonState();
     }
@@ -882,8 +1053,9 @@ void taskCO2Read(void *pvParameters) {
     if (errorCount >= MAX_ERRORS) {
       Serial.println("Удаляю задачу...");
       mh19.end();
-      vTaskDelete(NULL);
+      taskCO2ReadHandle = NULL;
       CO2ReadRunning = false;
+      vTaskDelete(NULL);
     }
 
     vTaskDelay(5000 / portTICK_PERIOD_MS);
@@ -896,12 +1068,15 @@ void taskMonitor(void *pvParameters) {
       webServerRunning = (taskWebServerHandle != NULL);
       nRF905Running = (taskNRF905Handle != NULL);
       CO2ReadRunning = (taskCO2ReadHandle != NULL);
+      processNextionRunning = (processNextionTaskHandle != NULL);
+      BMP280Running = (taskBMP280Handle != NULL);
+      sendDataToInfluxDBRunning = (taskSendDataToInfluxDBHandle != NULL);
       forecasterRunning = (taskForecasterHandle != NULL);
       getTimeRunning = (taskGetTimeHandle != NULL);
 
 
       // Ждем 5 секунд перед следующим обновлением
-      vTaskDelay(pdMS_TO_TICKS(500));
+      vTaskDelay(pdMS_TO_TICKS(200));
   }
 }
 
@@ -986,6 +1161,7 @@ void setup()
   server.on("/restart", handleRestart);
   server.on("/graph-data", handleGraphData);
   server.on("/getTasksState", handleGetTasksState);
+  server.on("/toggleTask", HTTP_POST, handleTaskControl);
   server.on("/sysinfo", HTTP_GET, handleSysInfo);
   server.on("/bmeinfo", HTTP_GET, handleBMEInfo);
   server.on("/nrf905Status", HTTP_GET, handlenRFInfo);
@@ -993,6 +1169,8 @@ void setup()
   server.on("/nrfreset", HTTP_POST, handleNRFReset);
   server.serveStatic("/", LittleFS, "/");
   server.begin();
+  webSocket.begin();
+  webSocket.onEvent(webSocketEvent);
 
   webServerRunning = true;
 

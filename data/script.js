@@ -25,7 +25,7 @@ function updateWeatherIcon(forecast) {
 
     if (forecast >= 0 && forecast <= 2) {
         weatherIcon.src = '/sunny.png';
-    } else if (forecast <= 5) {
+    } else if (forecast <= 4.5) {
         weatherIcon.src = '/partly_cloudy.png';
     } else if (forecast <= 7) {
         weatherIcon.src = '/cloudy.png';
@@ -41,17 +41,17 @@ function updateTrendIcon(trend) {
         return;
     }
 
-    if (trend < -3) {
+    if (trend < -2.8) {
         trendIcon.src = '/3arrowdown.png';
-    } else if (trend >= -3 && trend < -2) {
+    } else if (trend >= -2.8 && trend < -1.8) {
         trendIcon.src = '/2arrowdown.png';
-    } else if (trend >= -2 && trend < -1) {
+    } else if (trend >= -1.8 && trend < -0.7) {
         trendIcon.src = '/arrowdown.png';
-    } else if (trend >= -1 && trend <= 1) {
+    } else if (trend >= -0.7 && trend <= 0.7) {
         trendIcon.src = '/neutral.png';
-    } else if (trend > 1 && trend <= 2) {
+    } else if (trend > 0.7 && trend <= 1.8) {
         trendIcon.src = '/arrowup.png';
-    } else if (trend > 2 && trend <= 3) {
+    } else if (trend > 1.8 && trend <= 2.8) {
         trendIcon.src = '/2arrowup.png';
     } else {
         trendIcon.src = '/3arrowup.png';
