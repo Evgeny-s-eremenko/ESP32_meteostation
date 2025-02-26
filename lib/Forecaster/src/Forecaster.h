@@ -81,25 +81,6 @@ public:
         return delta;
     }
 
-    void saveData() {
-        StaticJsonDocument<256> doc;
-        for (int i = 0; i < _FC_SIZE; i++) {
-            doc["Parr"][i] = Parr[i];
-        }
-        doc["cast"] = cast;
-        doc["delta"] = delta;
-
-        String jsonString;
-        serializeJson(doc, jsonString);
-
-        if (nvs_set_str(handle, "Parr", jsonString.c_str()) == ESP_OK) {
-            nvs_commit(handle);
-            Serial.println("Данные сохранены в NVS.");
-        } else {
-            Serial.println("Ошибка сохранения данных.");
-        }
-    }
-
 private:
     long Parr[_FC_SIZE];
     float H = 0;
@@ -127,6 +108,25 @@ private:
         else if (delta < -150) cast = 130 - 0.124 * P + season;
         else cast = 138 - 0.133 * P;
         if (cast < 0) cast = 0;
+    }
+
+    void saveData() {
+        StaticJsonDocument<256> doc;
+        for (int i = 0; i < _FC_SIZE; i++) {
+            doc["Parr"][i] = Parr[i];
+        }
+        doc["cast"] = cast;
+        doc["delta"] = delta;
+
+        String jsonString;
+        serializeJson(doc, jsonString);
+
+        if (nvs_set_str(handle, "Parr", jsonString.c_str()) == ESP_OK) {
+            nvs_commit(handle);
+            Serial.println("Данные сохранены в NVS.");
+        } else {
+            Serial.println("Ошибка сохранения данных.");
+        }
     }
 
     void loadData() {
