@@ -322,8 +322,19 @@ void handleRestart() {
         return server.requestAuthentication();
     }
     server.send(200, "text/plain", "ESP32 is restarting...");
+    nextion.print("rest");
+    nextion.write(0xFF);
+    nextion.write(0xFF);
+    nextion.write(0xFF);
     delay(1000);
     ESP.restart();
+}
+
+void handleNextionRestart() {
+  nextion.print("rest");
+  nextion.write(0xFF);
+  nextion.write(0xFF);
+  nextion.write(0xFF);
 }
 
 void handleRestartFromNextion() {
@@ -581,7 +592,7 @@ void switchTaskWebServer() {
     webSocket.begin();
     webSocket.onEvent(webSocketEvent); // Назначаем обработчик событий WebSocket
 
-    xTaskCreatePinnedToCore(taskWebServer, "Web Server", 16384, NULL, 6, &taskWebServerHandle, 1);
+    xTaskCreatePinnedToCore(taskWebServer, "Web Server", 20480, NULL, 5, &taskWebServerHandle, 1);
     webServerRunning = true;
   } else {
     Serial.println("Остановка задачи WEB-сервера...");
@@ -602,7 +613,7 @@ void switchTaskWebServer() {
 
 void switchTaskInfluxDB() {
     if (taskSendDataToInfluxDBHandle == NULL) {
-      xTaskCreate(taskSendDataToInfluxDB, "InfluxDBTask", 10000, NULL, 4, &taskSendDataToInfluxDBHandle);
+      xTaskCreate(taskSendDataToInfluxDB, "InfluxDBTask", 10240, NULL, 4, &taskSendDataToInfluxDBHandle);
       sendDataToInfluxDBRunning = true;
     } else {
       vTaskDelete(taskSendDataToInfluxDBHandle);
@@ -628,7 +639,7 @@ void switchTaskCO2Read() {
 
 void switchTaskNRF905() {
     if(taskNRF905Handle == NULL)  {
-      xTaskCreate(taskNRF905, "NRF905 Receiver", 2048, NULL, 5, &taskNRF905Handle);
+      xTaskCreate(taskNRF905, "NRF905 Receiver", 4096, NULL, 4, &taskNRF905Handle);
       nRF905Running = true;
     } else  {
       vTaskDelete(taskNRF905Handle);
@@ -655,7 +666,7 @@ void switchTaskNextion()  {
 void switchTaskBMP280() {
   if(taskBMP280Handle == NULL)  {
     Serial.println("Запуск задачи BMP280...");
-    xTaskCreate(taskBMP280, "BMP280 Sensor", 2048, NULL, 4, &taskBMP280Handle);
+    xTaskCreate(taskBMP280, "BMP280 Sensor", 2048, NULL, 3, &taskBMP280Handle);
     BMP280Running = true;
   } else  {
     Serial.println("Остановка задачи BMP280...");
@@ -685,7 +696,7 @@ void switchTaskForecaster() {
 void switchTaskNTP()  {
   if(taskGetTimeHandle == NULL) {
     configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
-    xTaskCreate(taskGetTime, "Get NTP Time", 4096, NULL, 3, &taskGetTimeHandle);
+    xTaskCreate(taskGetTime, "Get NTP Time", 4096, NULL, 2, &taskGetTimeHandle);
     getTimeRunning = true;
   } else  {
     vTaskDelete(taskGetTimeHandle);
@@ -876,13 +887,13 @@ void sendPage0Data() {
   // p0: картинка, определяем id по значению forecast
   int pic;
   if (forecast < 2)
-    pic = 7;
-  else if (forecast < 5)
     pic = 5;
+  else if (forecast < 4.5)
+    pic = 3;
   else if (forecast < 7)
-    pic = 4;
+    pic = 2;
   else
-    pic = 6;
+    pic = 4;
   
   cmd = "p0.pic=" + String(pic);
   nextion.print(cmd);
@@ -914,7 +925,7 @@ void sendPage1Data() {
   nextion.write(0xFF); nextion.write(0xFF); nextion.write(0xFF);
 }
 
-// Функция синхронизации состояния кнопки bt0 с флагом webServerRunning
+// Функция синхронизации состояния кнопок Nextion
 void syncWebServerButtonState() {
   if (webServerRunning) {
     nextion.print("bt0.val=1");
@@ -1003,6 +1014,7 @@ void syncNTPButtonState() {
   nextion.write(0xFF);
 }
 
+// Отправка данных о состоянии кнопок на Nextion
 void sendPage2Data() {
   syncWebServerButtonState();
   syncnRF905ButtonState();
@@ -1053,6 +1065,10 @@ void processNextionMessageBinary(const uint8_t* msg, size_t len) {
     else if (compID == 0x04) {
       Serial.println("Нажата кнопка b3");
       resetNRF905();
+    }
+    else if (compID == 0x05)  {
+      Serial.println("Нажата кнопка b4");
+      ESP.restart();
     }
     else if (compID == 0x06) {
       Serial.println("Нажата кнопка bt0");
@@ -1355,16 +1371,16 @@ void setup()
 
   // Создание задач FreeRTOS
 
-  xTaskCreate(taskNRF905, "NRF905 Receiver", 2048, NULL, 4, &taskNRF905Handle);
+  xTaskCreate(taskNRF905, "NRF905 Receiver", 4096, NULL, 4, &taskNRF905Handle);
   xTaskCreate(taskBMP280, "BMP280 Sensor", 2048, NULL, 3, &taskBMP280Handle);
   xTaskCreate(taskCO2Read, "CO2 read task", 2048, NULL, 2, &taskCO2ReadHandle);
   xTaskCreate(taskGetTime, "Get NTP Time", 4096, NULL, 2, &taskGetTimeHandle);
-  xTaskCreate(taskSendDataToInfluxDB, "InfluxDBTask", 10000, NULL, 4, &taskSendDataToInfluxDBHandle);
-  xTaskCreatePinnedToCore(taskWebServer, "Web Server", 16384, NULL, 5, &taskWebServerHandle, 1);
+  xTaskCreate(taskSendDataToInfluxDB, "InfluxDBTask", 10240, NULL, 4, &taskSendDataToInfluxDBHandle);
+  xTaskCreatePinnedToCore(taskWebServer, "Web Server", 20480, NULL, 5, &taskWebServerHandle, 1);
   xTaskCreate(taskForecast, "Forecast task", 2048, NULL, 1, &taskForecasterHandle);
   xTaskCreate(processNextionTask, "Nextion", 4096, NULL, 3, &processNextionTaskHandle);
   //xTaskCreate(taskSerialPrint, "Serial Print", 2048, NULL, 1, NULL);
-  xTaskCreate(taskMonitor, "Task Status", 2048, NULL, 2, NULL);
+  xTaskCreate(taskMonitor, "Task Status", 4096, NULL, 2, NULL);
 }
 
 // ----------------------------- Main loop -----------------------------
