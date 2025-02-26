@@ -582,7 +582,19 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length)
 }
 
 // ----------------------- Функции запуска и остановки задач -------------
+void nextionWakeUP()  {
+  nextion.print("sleep=0");
+  nextion.write(0xFF);
+  nextion.write(0xFF);
+  nextion.write(0xFF);
+}
 
+void nextionSleep()  {
+  nextion.print("sleep=1");
+  nextion.write(0xFF);
+  nextion.write(0xFF);
+  nextion.write(0xFF);
+}
 
 void switchTaskWebServer() {
   if (taskWebServerHandle == NULL) {
@@ -652,14 +664,21 @@ void switchTaskNRF905() {
 void switchTaskNextion()  {
   if(processNextionTaskHandle == NULL)  {
     nextion.begin(115200, SERIAL_8N1, RX2, TX2);
+    vTaskDelay(200 / portTICK_PERIOD_MS);
+    handleNextionRestart();
     xTaskCreate(processNextionTask, "Nextion", 4096, NULL, 3, &processNextionTaskHandle);
     processNextionRunning = true;
+    Serial.println("Nextion task started, display awakened.");
   } else  {
+    nextionSleep();
+    vTaskDelay(200 / portTICK_PERIOD_MS);
     nextion.end();
     vTaskDelete(processNextionTaskHandle);
     processNextionTaskHandle = NULL;
-    processNextionRunning = false;    
+    processNextionRunning = false;
+    Serial.println("Nextion task stopped, display asleep.");    
   }
+  vTaskDelay(50 / portTICK_PERIOD_MS);
   sendTaskStateUpdate();
 }
 
@@ -674,7 +693,7 @@ void switchTaskBMP280() {
     vTaskDelay(50 / portTICK_PERIOD_MS);
     vTaskDelete(taskBMP280Handle);
     taskBMP280Handle = NULL;
-    BMP280Running = true;
+    BMP280Running = false;
   }
   sendTaskStateUpdate();
 }
@@ -688,7 +707,7 @@ void switchTaskForecaster() {
   } else  {
     vTaskDelete(taskForecasterHandle);
     taskForecasterHandle = NULL;
-    forecasterRunning = true;
+    forecasterRunning = false;
   }
   sendTaskStateUpdate();
 }
@@ -757,12 +776,13 @@ void taskWebServer(void *pvParameters)
 {
   while (true)
   {
-    server.handleClient();               // Обработка запросов
-    webSocket.loop();
-    vTaskDelay(10 / portTICK_PERIOD_MS); // Задержка, чтобы избежать перегрузки процессора
+    server.handleClient();  // Обработка HTTP запросов
+    vTaskDelay(5 / portTICK_PERIOD_MS); // Небольшая задержка
+
+    webSocket.loop();       // Обработка WebSocket событий
+    vTaskDelay(5 / portTICK_PERIOD_MS);
   }
 }
-
 void taskNRF905(void *pvParameters)
 {
   // Запоминаем время последнего успешного получения данных
@@ -1213,6 +1233,7 @@ void taskCO2Read(void *pvParameters) {
       mh19.end();
       taskCO2ReadHandle = NULL;
       CO2ReadRunning = false;
+      sendTaskStateUpdate();
       vTaskDelete(NULL);
     }
 
@@ -1234,7 +1255,7 @@ void taskMonitor(void *pvParameters) {
 
 
       // Ждем 5 секунд перед следующим обновлением
-      vTaskDelay(pdMS_TO_TICKS(500));
+      vTaskDelay(pdMS_TO_TICKS(600));
   }
 }
 
@@ -1272,6 +1293,7 @@ void setup()
 {
   Serial.begin(115200);
   nextion.begin(115200, SERIAL_8N1, RX2, TX2); // Инициализация Serial2  
+  nextionWakeUP();
   Serial.println("ESP32 + Nextion Initialized");
 
 
