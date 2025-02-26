@@ -830,11 +830,15 @@ void taskForecast(void *pvParameters) {
     if (month != -1) {
       cond.setMonth(month);  // Устанавливаем текущий месяц в Forecaster
     }
-    int p = bme.readPressure();
+    int p = pressure * 100;
     if (p !=0 && !isnan(p)) {
     
     cond.addP(p, temperature);
+    } else  {
+      vTaskDelay((5000) / portTICK_PERIOD_MS);
     }
+    Serial.print("Отправлены параметры в forecast: ");
+    Serial.println(p);
     forecast = cond.getCast();
     trend = cond.getTrend() / 100.0f;
     Serial.print("Baric tendence: ");
@@ -910,10 +914,6 @@ void sendPage1Data() {
   nextion.write(0xFF); nextion.write(0xFF); nextion.write(0xFF);
 }
 
-void sendPage2Data() {
-  syncWebServerButtonState();
-}
-
 // Функция синхронизации состояния кнопки bt0 с флагом webServerRunning
 void syncWebServerButtonState() {
   if (webServerRunning) {
@@ -924,6 +924,94 @@ void syncWebServerButtonState() {
   nextion.write(0xFF);
   nextion.write(0xFF);
   nextion.write(0xFF);
+}
+
+void syncnRF905ButtonState() {
+  if (nRF905Running) {
+    nextion.print("bt1.val=1");
+  } else {
+    nextion.print("bt1.val=0");
+  }
+  nextion.write(0xFF);
+  nextion.write(0xFF);
+  nextion.write(0xFF);
+}
+
+void syncCO2ButtonState() {
+  if (CO2ReadRunning) {
+    nextion.print("bt2.val=1");
+  } else {
+    nextion.print("bt2.val=0");
+  }
+  nextion.write(0xFF);
+  nextion.write(0xFF);
+  nextion.write(0xFF);
+}
+
+void syncNextionButtonState() {
+  if (processNextionRunning) {
+    nextion.print("bt3.val=1");
+  } else {
+    nextion.print("bt3.val=0");
+  }
+  nextion.write(0xFF);
+  nextion.write(0xFF);
+  nextion.write(0xFF);
+}
+
+void syncBMP280ButtonState() {
+  if (BMP280Running) {
+    nextion.print("bt4.val=1");
+  } else {
+    nextion.print("bt4.val=0");
+  }
+  nextion.write(0xFF);
+  nextion.write(0xFF);
+  nextion.write(0xFF);
+}
+
+void syncInfluxDBButtonState() {
+  if (sendDataToInfluxDBRunning) {
+    nextion.print("bt5.val=1");
+  } else {
+    nextion.print("bt5.val=0");
+  }
+  nextion.write(0xFF);
+  nextion.write(0xFF);
+  nextion.write(0xFF);
+}
+
+void syncForecastButtonState() {
+  if (forecasterRunning) {
+    nextion.print("bt6.val=1");
+  } else {
+    nextion.print("bt6.val=0");
+  }
+  nextion.write(0xFF);
+  nextion.write(0xFF);
+  nextion.write(0xFF);
+}
+
+void syncNTPButtonState() {
+  if (getTimeRunning) {
+    nextion.print("bt7.val=1");
+  } else {
+    nextion.print("bt7.val=0");
+  }
+  nextion.write(0xFF);
+  nextion.write(0xFF);
+  nextion.write(0xFF);
+}
+
+void sendPage2Data() {
+  syncWebServerButtonState();
+  syncnRF905ButtonState();
+  syncCO2ButtonState();
+  syncNextionButtonState();
+  syncBMP280ButtonState();
+  syncInfluxDBButtonState();
+  syncForecastButtonState();
+  syncNTPButtonState();
 }
 
 // Обработчик бинарного сообщения от Nextion
@@ -972,6 +1060,55 @@ void processNextionMessageBinary(const uint8_t* msg, size_t len) {
       switchTaskWebServer();
       // Синхронизируем состояние dual-state кнопки
       syncWebServerButtonState();
+    }
+    else if (compID == 0x07) {
+      Serial.println("Нажата кнопка bt1");
+      // Переключаем веб-сервер
+      switchTaskNRF905();
+      // Синхронизируем состояние dual-state кнопки
+      syncnRF905ButtonState();
+    }
+    else if (compID == 0x08) {
+      Serial.println("Нажата кнопка bt2");
+      // Переключаем веб-сервер
+      switchTaskCO2Read();
+      // Синхронизируем состояние dual-state кнопки
+      syncCO2ButtonState();
+    }
+    else if (compID == 0x09) {
+      Serial.println("Нажата кнопка bt3");
+      // Переключаем веб-сервер
+      switchTaskNextion();
+      // Синхронизируем состояние dual-state кнопки
+      syncNextionButtonState();
+    }
+    else if (compID == 0x0A) {
+      Serial.println("Нажата кнопка bt4");
+      // Переключаем веб-сервер
+      switchTaskBMP280();
+      // Синхронизируем состояние dual-state кнопки
+      syncBMP280ButtonState();
+    }
+    else if (compID == 0x0B) {
+      Serial.println("Нажата кнопка bt5");
+      // Переключаем веб-сервер
+      switchTaskInfluxDB();
+      // Синхронизируем состояние dual-state кнопки
+      syncInfluxDBButtonState();
+    }
+    else if (compID == 0x0C) {
+      Serial.println("Нажата кнопка bt6");
+      // Переключаем веб-сервер
+      switchTaskForecaster();
+      // Синхронизируем состояние dual-state кнопки
+      syncForecastButtonState();
+    }
+    else if (compID == 0x0D) {
+      Serial.println("Нажата кнопка bt7");
+      // Переключаем веб-сервер
+      switchTaskNTP();
+      // Синхронизируем состояние dual-state кнопки
+      syncNTPButtonState();
     }
   }
 }
