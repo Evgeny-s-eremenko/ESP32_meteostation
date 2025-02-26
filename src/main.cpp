@@ -675,6 +675,8 @@ void switchTaskForecaster() {
     xTaskCreate(taskForecast, "Forecast task", 2048, NULL, 1, &taskForecasterHandle);
     forecasterRunning = true;
   } else  {
+    nvs_erase_all;
+    //cond.saveData();
     vTaskDelete(taskForecasterHandle);
     taskForecasterHandle = NULL;
     forecasterRunning = true;
@@ -1218,7 +1220,7 @@ void taskMonitor(void *pvParameters) {
 
 
       // Ждем 5 секунд перед следующим обновлением
-      vTaskDelay(pdMS_TO_TICKS(200));
+      vTaskDelay(pdMS_TO_TICKS(500));
   }
 }
 
@@ -1355,16 +1357,16 @@ void setup()
 
   // Создание задач FreeRTOS
 
-  xTaskCreate(taskNRF905, "NRF905 Receiver", 2048, NULL, 5, &taskNRF905Handle);
-  xTaskCreate(taskBMP280, "BMP280 Sensor", 2048, NULL, 4, &taskBMP280Handle);
+  xTaskCreate(taskNRF905, "NRF905 Receiver", 2048, NULL, 4, &taskNRF905Handle);
+  xTaskCreate(taskBMP280, "BMP280 Sensor", 2048, NULL, 3, &taskBMP280Handle);
   xTaskCreate(taskCO2Read, "CO2 read task", 2048, NULL, 2, &taskCO2ReadHandle);
-  xTaskCreate(taskGetTime, "Get NTP Time", 4096, NULL, 3, &taskGetTimeHandle);
+  xTaskCreate(taskGetTime, "Get NTP Time", 4096, NULL, 2, &taskGetTimeHandle);
   xTaskCreate(taskSendDataToInfluxDB, "InfluxDBTask", 10000, NULL, 4, &taskSendDataToInfluxDBHandle);
-  xTaskCreatePinnedToCore(taskWebServer, "Web Server", 16384, NULL, 6, &taskWebServerHandle, 1);
+  xTaskCreatePinnedToCore(taskWebServer, "Web Server", 16384, NULL, 5, &taskWebServerHandle, 1);
   xTaskCreate(taskForecast, "Forecast task", 2048, NULL, 1, &taskForecasterHandle);
   xTaskCreate(processNextionTask, "Nextion", 4096, NULL, 3, &processNextionTaskHandle);
   //xTaskCreate(taskSerialPrint, "Serial Print", 2048, NULL, 1, NULL);
-  xTaskCreate(taskMonitor, "Task Status", 2048, NULL, 3, NULL);
+  xTaskCreate(taskMonitor, "Task Status", 2048, NULL, 2, NULL);
 }
 
 // ----------------------------- Main loop -----------------------------
