@@ -155,7 +155,6 @@ window.addEventListener('load', () => {
     
     // Обновляем информацию каждые 10 секунд (по необходимости)
     setInterval(() => {
-        fetchTaskStates();
         loadSystemInfo();
         loadBMEInfo();
         loadNRF905Info();
