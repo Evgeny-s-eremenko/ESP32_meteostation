@@ -675,8 +675,6 @@ void switchTaskForecaster() {
     xTaskCreate(taskForecast, "Forecast task", 2048, NULL, 1, &taskForecasterHandle);
     forecasterRunning = true;
   } else  {
-    nvs_erase_all;
-    //cond.saveData();
     vTaskDelete(taskForecasterHandle);
     taskForecasterHandle = NULL;
     forecasterRunning = true;
