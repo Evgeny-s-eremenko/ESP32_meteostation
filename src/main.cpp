@@ -723,14 +723,10 @@ void switchTaskNextion() {
     // Если задача активна - останавливаем
     nextionSleep();
     vTaskDelay(200 / portTICK_PERIOD_MS);
-    nextion.end();
     vTaskSuspend(processNextionTaskHandle);
     processNextionRunning = false;
     Serial.println("Обновление дисплея: остановлено");
   } else {
-    nextion.begin(115200, SERIAL_8N1, RX2, TX2);
-    vTaskDelay(200 / portTICK_PERIOD_MS);
-    nextionWakeUP();
     // Если задача неактивна - запускаем/возобновляем
     if (processNextionTaskHandle == NULL) {
       xTaskCreate(
@@ -744,6 +740,7 @@ void switchTaskNextion() {
       Serial.println("Обновление дисплея: создано и запущено");
     } else {
       vTaskResume(processNextionTaskHandle);
+      nextionWakeUP();
       Serial.println("Обновление дисплея: возобновлёно");
     }
     processNextionRunning = true;
@@ -1054,7 +1051,7 @@ void sendPage1Data() {
 
 // Функция синхронизации состояния кнопок Nextion
 void syncWebServerButtonState() {
-  if (webServerRunning) {
+  if (isTaskActive(taskWebServerHandle)) {
     nextion.print("bt0.val=1");
   } else {
     nextion.print("bt0.val=0");
@@ -1065,7 +1062,7 @@ void syncWebServerButtonState() {
 }
 
 void syncnRF905ButtonState() {
-  if (nRF905Running) {
+  if (isTaskActive(taskNRF905Handle)) {
     nextion.print("bt1.val=1");
   } else {
     nextion.print("bt1.val=0");
@@ -1076,7 +1073,7 @@ void syncnRF905ButtonState() {
 }
 
 void syncCO2ButtonState() {
-  if (CO2ReadRunning) {
+  if (isTaskActive(taskCO2ReadHandle)) {
     nextion.print("bt2.val=1");
   } else {
     nextion.print("bt2.val=0");
@@ -1087,7 +1084,7 @@ void syncCO2ButtonState() {
 }
 
 void syncNextionButtonState() {
-  if (processNextionRunning) {
+  if (isTaskActive(processNextionTaskHandle)) {
     nextion.print("bt3.val=1");
   } else {
     nextion.print("bt3.val=0");
@@ -1098,7 +1095,7 @@ void syncNextionButtonState() {
 }
 
 void syncBMP280ButtonState() {
-  if (BMP280Running) {
+  if (isTaskActive(taskBMP280Handle)) {
     nextion.print("bt4.val=1");
   } else {
     nextion.print("bt4.val=0");
@@ -1109,7 +1106,7 @@ void syncBMP280ButtonState() {
 }
 
 void syncInfluxDBButtonState() {
-  if (sendDataToInfluxDBRunning) {
+  if (isTaskActive(taskSendDataToInfluxDBHandle)) {
     nextion.print("bt5.val=1");
   } else {
     nextion.print("bt5.val=0");
@@ -1120,7 +1117,7 @@ void syncInfluxDBButtonState() {
 }
 
 void syncForecastButtonState() {
-  if (forecasterRunning) {
+  if (isTaskActive(taskForecasterHandle)) {
     nextion.print("bt6.val=1");
   } else {
     nextion.print("bt6.val=0");
@@ -1131,7 +1128,7 @@ void syncForecastButtonState() {
 }
 
 void syncNTPButtonState() {
-  if (getTimeRunning) {
+  if (isTaskActive(taskGetTimeHandle)) {
     nextion.print("bt7.val=1");
   } else {
     nextion.print("bt7.val=0");
@@ -1401,7 +1398,6 @@ void setup()
 {
   Serial.begin(115200);
   nextion.begin(115200, SERIAL_8N1, RX2, TX2); // Инициализация Serial2  
-  nextionWakeUP();
   Serial.println("ESP32 + Nextion Initialized");
 
 
