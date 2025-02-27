@@ -49,6 +49,16 @@ volatile bool sendDataToInfluxDBRunning = false;
 volatile bool forecasterRunning = false;
 volatile bool getTimeRunning = false;
 
+// Функция проверки состояния задачи
+bool isTaskActive(TaskHandle_t taskHandle) {
+  if (taskHandle == NULL) return false; // Задача не создана
+  
+  eTaskState state = eTaskGetState(taskHandle);
+  return (state == eRunning) || 
+         (state == eReady) || 
+         (state == eBlocked);
+}
+
 Forecaster cond;
 
 // ---------------------------- Пины и устройства ----------------------------
@@ -151,14 +161,14 @@ void handleGraphData() {
 
 void handleGetTasksState() {
   String stateJson = "{";
-  stateJson += "\"webServer\":" + String(webServerRunning ? "true" : "false") + ",";
-  stateJson += "\"nRF905\":" + String(nRF905Running ? "true" : "false") + ",";
-  stateJson += "\"CO2\":" + String(CO2ReadRunning ? "true" : "false") + ",";
-  stateJson += "\"nextion\":" + String(processNextionRunning ? "true" : "false") + ",";
-  stateJson += "\"BMP280\":" + String(BMP280Running ? "true" : "false") + ",";
-  stateJson += "\"InfluxDB\":" + String(sendDataToInfluxDBRunning ? "true" : "false") + ",";
-  stateJson += "\"Forecaster\":" + String(forecasterRunning ? "true" : "false") + ",";
-  stateJson += "\"NTP\":" + String(getTimeRunning ? "true" : "false");
+  stateJson += "\"webServer\":" + String(isTaskActive(taskWebServerHandle) ? "true" : "false") + ",";
+  stateJson += "\"nRF905\":" + String(isTaskActive(taskNRF905Handle) ? "true" : "false") + ",";
+  stateJson += "\"CO2\":" + String(isTaskActive(taskCO2ReadHandle) ? "true" : "false") + ",";
+  stateJson += "\"nextion\":" + String(isTaskActive(processNextionTaskHandle) ? "true" : "false") + ",";
+  stateJson += "\"BMP280\":" + String(isTaskActive(taskBMP280Handle) ? "true" : "false") + ",";
+  stateJson += "\"InfluxDB\":" + String(isTaskActive(taskSendDataToInfluxDBHandle) ? "true" : "false") + ",";
+  stateJson += "\"Forecaster\":" + String(isTaskActive(taskForecasterHandle) ? "true" : "false") + ",";
+  stateJson += "\"NTP\":" + String(isTaskActive(taskGetTimeHandle) ? "true" : "false");
   stateJson += "}";
 
   server.send(200, "application/json", stateJson);
@@ -166,14 +176,14 @@ void handleGetTasksState() {
 
 void sendTaskStateUpdate() {
   String stateJson = "{";
-  stateJson += "\"webServer\":" + String(webServerRunning ? "true" : "false") + ",";
-  stateJson += "\"nRF905\":" + String(nRF905Running ? "true" : "false") + ",";
-  stateJson += "\"CO2\":" + String(CO2ReadRunning ? "true" : "false") + ",";
-  stateJson += "\"nextion\":" + String(processNextionRunning ? "true" : "false") + ",";
-  stateJson += "\"BMP280\":" + String(BMP280Running ? "true" : "false") + ",";
-  stateJson += "\"InfluxDB\":" + String(sendDataToInfluxDBRunning ? "true" : "false") + ",";
-  stateJson += "\"Forecaster\":" + String(forecasterRunning ? "true" : "false") + ",";
-  stateJson += "\"NTP\":" + String(getTimeRunning ? "true" : "false");
+  stateJson += "\"webServer\":" + String(isTaskActive(taskWebServerHandle) ? "true" : "false") + ",";
+  stateJson += "\"nRF905\":" + String(isTaskActive(taskSendDataToInfluxDBHandle) ? "true" : "false") + ",";
+  stateJson += "\"CO2\":" + String(isTaskActive(taskCO2ReadHandle) ? "true" : "false") + ",";
+  stateJson += "\"nextion\":" + String(isTaskActive(processNextionTaskHandle) ? "true" : "false") + ",";
+  stateJson += "\"BMP280\":" + String(isTaskActive(taskBMP280Handle) ? "true" : "false") + ",";
+  stateJson += "\"InfluxDB\":" + String(isTaskActive(taskSendDataToInfluxDBHandle) ? "true" : "false") + ",";
+  stateJson += "\"Forecaster\":" + String(isTaskActive(taskForecasterHandle) ? "true" : "false") + ",";
+  stateJson += "\"NTP\":" + String(isTaskActive(taskGetTimeHandle) ? "true" : "false");
   stateJson += "}";
 
   webSocket.broadcastTXT(stateJson);  // Отправляем обновлённые данные всем клиентам
@@ -597,132 +607,229 @@ void nextionSleep()  {
 }
 
 void switchTaskWebServer() {
-  if (taskWebServerHandle == NULL) {
-    Serial.println("Запуск задачи WEB-сервера...");
-
-    server.begin();  // Инициализация HTTP-сервера
-    webSocket.begin();
-    webSocket.onEvent(webSocketEvent); // Назначаем обработчик событий WebSocket
-
-    xTaskCreatePinnedToCore(taskWebServer, "Web Server", 20480, NULL, 5, &taskWebServerHandle, 1);
-    webServerRunning = true;
-  } else {
-    Serial.println("Остановка задачи WEB-сервера...");
-
-    server.stop();  // Завершаем HTTP-сервер
-    webSocket.disconnect(); // Закрываем WebSocket
-    webSocket.loop();  // Принудительно обновляем WebSocket-состояние
-
-    vTaskDelay(50 / portTICK_PERIOD_MS); // Даем время завершить соединения
-
-    vTaskDelete(taskWebServerHandle);
-    taskWebServerHandle = NULL;
+  if (isTaskActive(taskWebServerHandle)) {
+    // Если задача активна - останавливаем
+    vTaskSuspend(taskWebServerHandle);
+    server.stop();
     webServerRunning = false;
+    Serial.println("WebServer: остановлен");
+  } else {
+    // Если задача неактивна - запускаем/возобновляем
+    if (taskWebServerHandle == NULL) {
+      xTaskCreate(
+        taskWebServer,
+        "WebServerTask", 
+        20480,
+        NULL,
+        5,
+        &taskWebServerHandle
+      );
+      Serial.println("WebServer: создан и запущен");
+    } else {
+      vTaskResume(taskWebServerHandle);
+      Serial.println("WebServer: возобновлён");
+    }
+    server.begin();
+    webServerRunning = true;
   }
-
-  sendTaskStateUpdate(); // Отправка обновленного состояния на веб-страницу
+  sendTaskStateUpdate(); // Отправляем обновление статуса
 }
 
 void switchTaskInfluxDB() {
+  if (isTaskActive(taskSendDataToInfluxDBHandle)) {
+    // Если задача активна - останавливаем
+    vTaskSuspend(taskSendDataToInfluxDBHandle);
+    sendDataToInfluxDBRunning = false;
+    Serial.println("Отправка в базу данных: остановлена");
+  } else {
+    // Если задача неактивна - запускаем/возобновляем
     if (taskSendDataToInfluxDBHandle == NULL) {
-      xTaskCreate(taskSendDataToInfluxDB, "InfluxDBTask", 10240, NULL, 4, &taskSendDataToInfluxDBHandle);
-      sendDataToInfluxDBRunning = true;
+      xTaskCreate(
+        taskSendDataToInfluxDB,
+        "InfluxDBTask", 
+        10240,
+        NULL,
+        4,
+        &taskSendDataToInfluxDBHandle
+      );
+      Serial.println("Отправка в базу данных: создана и запущена");
     } else {
-      vTaskDelete(taskSendDataToInfluxDBHandle);
-      taskSendDataToInfluxDBHandle = NULL;
-      sendDataToInfluxDBRunning = false;
+      vTaskResume(taskSendDataToInfluxDBHandle);
+      Serial.println("Отправка в базу данных: возобновлёна");
     }
-    sendTaskStateUpdate();
- }
+    sendDataToInfluxDBRunning = true;
+  }
+  sendTaskStateUpdate(); // Отправляем обновление статуса
+}
 
 void switchTaskCO2Read() {
-    if(taskCO2ReadHandle == NULL) {
-      mh19.begin(9600, SERIAL_8N1, RX1, TX1);
-      xTaskCreate(taskCO2Read, "CO2 read task", 2048, NULL, 2, &taskCO2ReadHandle);
-      CO2ReadRunning = true;
+  if (isTaskActive(taskCO2ReadHandle)) {
+    // Если задача активна - останавливаем
+    mh19.end();
+    vTaskSuspend(taskCO2ReadHandle);
+    CO2ReadRunning = false;
+    Serial.println("Чтение с датчика CO2: остановлено");
+  } else {
+    mh19.begin(9600, SERIAL_8N1, RX1, TX1);
+    // Если задача неактивна - запускаем/возобновляем
+    if (taskCO2ReadHandle == NULL) {
+      xTaskCreate(
+        taskCO2Read,
+        "CO2 read task", 
+        2048,
+        NULL,
+        2,
+        &taskCO2ReadHandle
+      );
+      Serial.println("Чтение с датчика CO2: создано и запущено");
     } else {
-      mh19.end();
-      vTaskDelete(taskCO2ReadHandle);
-      taskCO2ReadHandle = NULL;
-      CO2ReadRunning = false;
+      vTaskResume(taskCO2ReadHandle);
+      Serial.println("Чтение с датчика CO2: возобновлёно");
     }
-    sendTaskStateUpdate();
+    CO2ReadRunning = true;
+  }
+  sendTaskStateUpdate(); // Отправляем обновление статуса
 }
 
 void switchTaskNRF905() {
-    if(taskNRF905Handle == NULL)  {
-      xTaskCreate(taskNRF905, "NRF905 Receiver", 4096, NULL, 4, &taskNRF905Handle);
-      nRF905Running = true;
-    } else  {
-      vTaskDelete(taskNRF905Handle);
-      taskNRF905Handle = NULL;
-      nRF905Running = false;
+  if (isTaskActive(taskNRF905Handle)) {
+    // Если задача активна - останавливаем
+    vTaskSuspend(taskNRF905Handle);
+    nRF905Running = false;
+    Serial.println("Прием с nRF905: остановлен");
+  } else {
+    // Если задача неактивна - запускаем/возобновляем
+    if (taskNRF905Handle == NULL) {
+      xTaskCreate(
+        taskNRF905,
+        "NRF905 Receiver", 
+        4096,
+        NULL,
+        4,
+        &taskNRF905Handle
+      );
+      Serial.println("Прием с nRF905: создан и запущен");
+    } else {
+      vTaskResume(taskNRF905Handle);
+      Serial.println("Прием с nRF905: возобновлён");
     }
-    sendTaskStateUpdate();
+    nRF905Running = true;
+  }
+  sendTaskStateUpdate(); // Отправляем обновление статуса
 }
 
-void switchTaskNextion()  {
-  if(processNextionTaskHandle == NULL)  {
-    nextion.begin(115200, SERIAL_8N1, RX2, TX2);
-    vTaskDelay(200 / portTICK_PERIOD_MS);
-    handleNextionRestart();
-    xTaskCreate(processNextionTask, "Nextion", 4096, NULL, 3, &processNextionTaskHandle);
-    processNextionRunning = true;
-    Serial.println("Nextion task started, display awakened.");
-  } else  {
+void switchTaskNextion() {
+  if (isTaskActive(processNextionTaskHandle)) {
+    // Если задача активна - останавливаем
     nextionSleep();
     vTaskDelay(200 / portTICK_PERIOD_MS);
     nextion.end();
-    vTaskDelete(processNextionTaskHandle);
-    processNextionTaskHandle = NULL;
+    vTaskSuspend(processNextionTaskHandle);
     processNextionRunning = false;
-    Serial.println("Nextion task stopped, display asleep.");    
+    Serial.println("Обновление дисплея: остановлено");
+  } else {
+    nextion.begin(115200, SERIAL_8N1, RX2, TX2);
+    vTaskDelay(200 / portTICK_PERIOD_MS);
+    nextionWakeUP();
+    // Если задача неактивна - запускаем/возобновляем
+    if (processNextionTaskHandle == NULL) {
+      xTaskCreate(
+        processNextionTask,
+        "Nextion", 
+        4096,
+        NULL,
+        3,
+        &processNextionTaskHandle
+      );
+      Serial.println("Обновление дисплея: создано и запущено");
+    } else {
+      vTaskResume(processNextionTaskHandle);
+      Serial.println("Обновление дисплея: возобновлёно");
+    }
+    processNextionRunning = true;
   }
-  vTaskDelay(50 / portTICK_PERIOD_MS);
-  sendTaskStateUpdate();
+  sendTaskStateUpdate(); // Отправляем обновление статуса
 }
 
 void switchTaskBMP280() {
-  if(taskBMP280Handle == NULL)  {
-    Serial.println("Запуск задачи BMP280...");
-    xTaskCreate(taskBMP280, "BMP280 Sensor", 2048, NULL, 3, &taskBMP280Handle);
-    BMP280Running = true;
-  } else  {
-    Serial.println("Остановка задачи BMP280...");
-    Wire.end();
-    vTaskDelay(50 / portTICK_PERIOD_MS);
-    vTaskDelete(taskBMP280Handle);
-    taskBMP280Handle = NULL;
+  if (isTaskActive(taskBMP280Handle)) {
+    // Если задача активна - останавливаем
+    vTaskSuspend(taskBMP280Handle);
     BMP280Running = false;
+    Serial.println("Чтение с BME280: остановлено");
+  } else {
+    // Если задача неактивна - запускаем/возобновляем
+    if (taskBMP280Handle == NULL) {
+      xTaskCreate(
+        taskBMP280,
+        "BMP280 Sensor", 
+        2048,
+        NULL,
+        3,
+        &taskBMP280Handle
+      );
+      Serial.println("Чтение с BME280: создано и запущено");
+    } else {
+      vTaskResume(taskBMP280Handle);
+      Serial.println("Чтение с BME280: возобновлёно");
+    }
+    BMP280Running = true;
   }
-  sendTaskStateUpdate();
+  sendTaskStateUpdate(); // Отправляем обновление статуса
 }
 
 void switchTaskForecaster() {
-  if(taskForecasterHandle == NULL)  {
-    cond.begin();
-    cond.setH(61);
-    xTaskCreate(taskForecast, "Forecast task", 2048, NULL, 1, &taskForecasterHandle);
-    forecasterRunning = true;
-  } else  {
-    vTaskDelete(taskForecasterHandle);
-    taskForecasterHandle = NULL;
+  if (isTaskActive(taskForecasterHandle)) {
+    // Если задача активна - останавливаем
+    vTaskSuspend(taskForecasterHandle);
     forecasterRunning = false;
+    Serial.println("Прогноз погоды: остановлено");
+  } else {
+    // Если задача неактивна - запускаем/возобновляем
+    if (taskForecasterHandle == NULL) {
+      xTaskCreate(
+        taskForecast,
+        "Forecast task", 
+        2048,
+        NULL,
+        1,
+        &taskForecasterHandle
+      );
+      Serial.println("Прогноз погоды: создано и запущено");
+    } else {
+      vTaskResume(taskForecasterHandle);
+      Serial.println("Прогноз погоды: возобновлёно");
+    }
+    forecasterRunning = true;
   }
-  sendTaskStateUpdate();
+  sendTaskStateUpdate(); // Отправляем обновление статуса
 }
 
-void switchTaskNTP()  {
-  if(taskGetTimeHandle == NULL) {
-    configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
-    xTaskCreate(taskGetTime, "Get NTP Time", 4096, NULL, 2, &taskGetTimeHandle);
-    getTimeRunning = true;
-  } else  {
-    vTaskDelete(taskGetTimeHandle);
-    taskGetTimeHandle = NULL;
+void switchTaskNTP() {
+  if (isTaskActive(taskGetTimeHandle)) {
+    // Если задача активна - останавливаем
+    vTaskSuspend(taskGetTimeHandle);
     getTimeRunning = false;
+    Serial.println("NTP: остановлено");
+  } else {
+    // Если задача неактивна - запускаем/возобновляем
+    if (taskGetTimeHandle == NULL) {
+      xTaskCreate(
+        taskGetTime,
+        "Get NTP Time", 
+        4096,
+        NULL,
+        2,
+        &taskGetTimeHandle
+      );
+      Serial.println("NTP: создано и запущено");
+    } else {
+      vTaskResume(taskGetTimeHandle);
+      Serial.println("NTP: возобновлёно");
+    }
+    getTimeRunning = true;
   }
-  sendTaskStateUpdate();
+  sendTaskStateUpdate(); // Отправляем обновление статуса
 }
 
 void handleTaskControl() {
@@ -1229,7 +1336,8 @@ void taskCO2Read(void *pvParameters) {
 
     // Проверка на превышение ошибок
     if (errorCount >= MAX_ERRORS) {
-      Serial.println("Удаляю задачу...");
+      Serial.print("Датчик не подключен");
+      Serial.println("Удаляю задачу чтения с датчика CO2...");
       mh19.end();
       taskCO2ReadHandle = NULL;
       CO2ReadRunning = false;
@@ -1402,7 +1510,7 @@ void setup()
   xTaskCreate(taskForecast, "Forecast task", 2048, NULL, 1, &taskForecasterHandle);
   xTaskCreate(processNextionTask, "Nextion", 4096, NULL, 3, &processNextionTaskHandle);
   //xTaskCreate(taskSerialPrint, "Serial Print", 2048, NULL, 1, NULL);
-  xTaskCreate(taskMonitor, "Task Status", 4096, NULL, 2, NULL);
+  //xTaskCreate(taskMonitor, "Task Status", 4096, NULL, 2, NULL);
 }
 
 // ----------------------------- Main loop -----------------------------
