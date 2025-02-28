@@ -881,12 +881,21 @@ void taskWebServer(void *pvParameters)
   while (true)
   {
     server.handleClient();  // Обработка HTTP запросов
-    vTaskDelay(5 / portTICK_PERIOD_MS); // Небольшая задержка
+    vTaskDelay(10 / portTICK_PERIOD_MS); // Небольшая задержка
 
-    webSocket.loop();       // Обработка WebSocket событий
-    vTaskDelay(5 / portTICK_PERIOD_MS);
+    
   }
 }
+
+void taskWebSocket(void *pvParameters)
+{
+  while (true)
+  {
+    webSocket.loop();       // Обработка WebSocket событий
+    vTaskDelay(10 / portTICK_PERIOD_MS);
+  }
+}
+
 void taskNRF905(void *pvParameters)
 {
   // Запоминаем время последнего успешного получения данных
@@ -1346,24 +1355,6 @@ void taskCO2Read(void *pvParameters) {
   }
 }
 
-void taskMonitor(void *pvParameters) {
-  while (1) {
-      // Проверяем состояние задач и обновляем флаги
-      webServerRunning = (taskWebServerHandle != NULL);
-      nRF905Running = (taskNRF905Handle != NULL);
-      CO2ReadRunning = (taskCO2ReadHandle != NULL);
-      processNextionRunning = (processNextionTaskHandle != NULL);
-      BMP280Running = (taskBMP280Handle != NULL);
-      sendDataToInfluxDBRunning = (taskSendDataToInfluxDBHandle != NULL);
-      forecasterRunning = (taskForecasterHandle != NULL);
-      getTimeRunning = (taskGetTimeHandle != NULL);
-
-
-      // Ждем 5 секунд перед следующим обновлением
-      vTaskDelay(pdMS_TO_TICKS(600));
-  }
-}
-
 // void taskSerialPrint(void *pvParameters)
 // {
 //   while (true)
@@ -1506,7 +1497,7 @@ void setup()
   xTaskCreate(taskForecast, "Forecast task", 2048, NULL, 1, &taskForecasterHandle);
   xTaskCreate(processNextionTask, "Nextion", 4096, NULL, 3, &processNextionTaskHandle);
   //xTaskCreate(taskSerialPrint, "Serial Print", 2048, NULL, 1, NULL);
-  //xTaskCreate(taskMonitor, "Task Status", 4096, NULL, 2, NULL);
+  xTaskCreate(taskWebSocket, "WebSocket", 4096, NULL, 6, NULL);
 }
 
 // ----------------------------- Main loop -----------------------------
