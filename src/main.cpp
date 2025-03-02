@@ -39,6 +39,10 @@ extern TaskHandle_t taskBMP280Handle = NULL;
 extern TaskHandle_t taskSendDataToInfluxDBHandle = NULL;
 extern TaskHandle_t taskForecasterHandle = NULL;
 extern TaskHandle_t taskGetTimeHandle = NULL;
+
+// Мьютексы
+SemaphoreHandle_t i2cMutex;
+
 // Флаги задач
 volatile bool webServerRunning = false;
 volatile bool nRF905Running = false;
@@ -95,6 +99,7 @@ void syncWebServerButtonState();
 void processNextionTask();
 void handleGraphData();
 void handleRoot();
+void nextionRestart();
 void taskWebServer(void *pvParameters);
 void processNextionTask(void *pvParameters);
 void taskForecast(void *pvParameters);
@@ -332,10 +337,7 @@ void handleRestart() {
         return server.requestAuthentication();
     }
     server.send(200, "text/plain", "ESP32 is restarting...");
-    nextion.print("rest");
-    nextion.write(0xFF);
-    nextion.write(0xFF);
-    nextion.write(0xFF);
+    nextionRestart();
     delay(1000);
     ESP.restart();
 }
@@ -405,15 +407,18 @@ String getSystemInfo() {
 String getBME280Status() {
   String status = "";
   // Пытаемся прочитать с датчика — если не найден, выводим сообщение об ошибке
-  if (!bme.begin(0x76)) {
-    status = "BME280: Not Found";
-  } else {
-    status = "BME280: OK\n";
-    // Дополнительно можно вывести текущие показания
-    status += "Temp: " + String(bme.readTemperature(), 2) + " °C\n";
-    status += "Humidity: " + String(bme.readHumidity(), 2) + " %\n";
-    status += "Pressure: " + String(bme.readPressure() / 100.0F, 2) + " hPa\n";
-  }
+  if (xSemaphoreTake(i2cMutex, portMAX_DELAY) == pdTRUE) {
+    if (!bme.begin(0x76)) {
+      status = "BME280: Not Found";
+    } else {
+      status = "BME280: OK\n";
+      // Дополнительно можно вывести текущие показания
+      status += "Temp: " + String(bme.readTemperature(), 2) + " °C\n";
+      status += "Humidity: " + String(bme.readHumidity(), 2) + " %\n";
+      status += "Pressure: " + String(bme.readPressure() / 100.0F, 2) + " hPa\n";
+    }
+    xSemaphoreGive(i2cMutex);
+  }  
   return status;
 }
 
@@ -540,9 +545,24 @@ void sendDataToInfluxDB()
 
     if (trend >= -30 && trend <= 30) 
     {
-      influxDBLine += "trend=" + String(trend, 2);
+      influxDBLine += "trend=" + String(trend, 2) + ",";
     }
-    else influxDBLine += "trend=" + String(0, 2);
+    else influxDBLine += "trend=" + String(0, 2) + ",";
+
+    if (homeTemp != 0.0f)
+    {
+      influxDBLine += "homeTemp=" + String(homeTemp, 2) + ",";
+    }
+
+    if (homeHum != 0.0f)
+    {
+      influxDBLine += "homeHum=" + String(homeHum, 2) + ",";
+    }
+
+    if (homeDP != 0.0f)
+    {
+      influxDBLine += "homeDP=" + String(homeDP, 2);
+    }
   String url = "http://" + String(influxDBHost) + ":" + String(influxDBPort) + "/write?db=" + String(influxDBDatabase);
 
   http.begin(client, url);
@@ -601,6 +621,13 @@ void nextionWakeUP()  {
 
 void nextionSleep()  {
   nextion.print("sleep=1");
+  nextion.write(0xFF);
+  nextion.write(0xFF);
+  nextion.write(0xFF);
+}
+
+void nextionRestart() {
+  nextion.print("rest");
   nextion.write(0xFF);
   nextion.write(0xFF);
   nextion.write(0xFF);
@@ -940,16 +967,19 @@ void taskNRF905(void *pvParameters)
 
 void taskBMP280(void *pvParameters) {
   while (true) {
-    if (!bme.begin(0x76)) { // Проверка датчика (I2C-адрес 0x76)
-      Serial.println("Ошибка связи с BMP280!");
-      vTaskDelay(5000 / portTICK_PERIOD_MS);
-      continue;
-    }
+    if (xSemaphoreTake(i2cMutex, portMAX_DELAY) == pdTRUE) {
+      if (!bme.begin(0x76)) { // Проверка датчика (I2C-адрес 0x76)
+        Serial.println("Ошибка связи с BMP280!");
+        vTaskDelay(5000 / portTICK_PERIOD_MS);
+        continue;
+      }
 
-    pressure = bme.readPressure() / 100.0f; // Получаем давление
-    homeTemp = bme.readTemperature();
-    homeHum = bme.readHumidity();
-    homeDP = calculatehomeDP(homeTemp, homeHum);
+      pressure = bme.readPressure() / 100.0f; // Получаем давление
+      homeTemp = bme.readTemperature();
+      homeHum = bme.readHumidity();
+      homeDP = calculatehomeDP(homeTemp, homeHum);
+    xSemaphoreGive(i2cMutex);
+    }
 
     vTaskDelay(5000 / portTICK_PERIOD_MS); // Задержка 5 секунд
   }
@@ -1449,6 +1479,8 @@ void setup()
 
   webServerRunning = true;
 
+  nextionRestart();
+
   // Инициализация радиомодуля
   if (!driver.init())
   {
@@ -1485,6 +1517,12 @@ void setup()
   // Установка высоты для Forecaster
   cond.begin();
   cond.setH(61);
+
+  // Создание мьютексов
+  i2cMutex = xSemaphoreCreateMutex();
+    if (i2cMutex == NULL) {
+    Serial.println("Не удалось создать мьютекс для i2c!");
+  }
 
   // Создание задач FreeRTOS
 
