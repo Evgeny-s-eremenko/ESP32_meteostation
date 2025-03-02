@@ -342,13 +342,6 @@ void handleRestart() {
     ESP.restart();
 }
 
-void handleNextionRestart() {
-  nextion.print("rest");
-  nextion.write(0xFF);
-  nextion.write(0xFF);
-  nextion.write(0xFF);
-}
-
 void handleRestartFromNextion() {
   
   server.send(200, "text/plain", "ESP32 is restarting...");
