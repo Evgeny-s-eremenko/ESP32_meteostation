@@ -11,6 +11,8 @@
 #include <time.h>
 #include <Forecaster.h>
 #include <WebSocketsServer.h>
+#include "SparkFun_ENS160.h"
+#include <SparkFun_Qwiic_Humidity_AHT20.h>
 
 
 
@@ -73,6 +75,9 @@ Forecaster cond;
 #define NRF905_TX_EN 25
 #define NRF905_CS 15
 #define NRF905_PWR_UP_PIN 26 // пин принудительного сброса nRF905
+
+// --------------------------------- Объекты ---------------------------------
+
 // ---------------------- Определение пинов serial2 --------------------------
 HardwareSerial nextion(2); // Используем Serial2 для связи с дисплеем
 #define RX2 16  // RX пин ESP32
@@ -87,6 +92,8 @@ HardwareSerial mh19(1); //Serial1 для датчика CO2
 
 
 Adafruit_BME280 bme;                                  // Датчик давления BMP280
+SparkFun_ENS160 myENS;                                // Датчик качества воздуха ENS160
+AHT20 humiditySensor;                                 // Датчик температуры и влажности AHT21
 RH_NRF905 driver(NRF905_CE, NRF905_TX_EN, NRF905_CS); // Радиомодуль nRF905
 WebServer server(80);                                 // Веб-сервер на порту 80
 WebSocketsServer webSocket(81);                       // WebSocket сервер на порту 81
@@ -122,7 +129,10 @@ volatile float homeDP = 0.0f;
 volatile float trend = 0.0f;
 float forecast = 0;
 int month = -1;
-int ppm = 400;
+volatile int ppm = 400;
+volatile int TVOC = 0;
+volatile int AQI = 1;
+volatile int ECO2 = 400;
 
 // Переменная для хранения текущей страницы Nextion
 String currentPage = "page0";
@@ -1079,6 +1089,11 @@ void sendPage1Data() {
   cmd = "t2.txt=\"" + String(pressure) + " hPa\"";
   nextion.print(cmd);
   nextion.write(0xFF); nextion.write(0xFF); nextion.write(0xFF);
+
+  // t2: pressure (используем ту же переменную)
+  cmd = "t4.txt=\"" + String(ppm) + " ppm\"";
+  nextion.print(cmd);
+  nextion.write(0xFF); nextion.write(0xFF); nextion.write(0xFF);
 }
 
 // Функция синхронизации состояния кнопок Nextion
@@ -1351,7 +1366,7 @@ void taskCO2Read(void *pvParameters) {
       checksum = 0xFF - checksum + 1;
 
       if (response[8] == checksum) {
-        int ppm = (256 * response[2]) + response[3];
+        ppm = (256 * response[2]) + response[3];
         Serial.printf("CO2: %d ppm\n", ppm);
         errorCount = 0; // Сброс ошибок при успехе
       } else {
@@ -1376,6 +1391,10 @@ void taskCO2Read(void *pvParameters) {
 
     vTaskDelay(5000 / portTICK_PERIOD_MS);
   }
+}
+
+void taskTVOCRead(void *pvParameters) {
+  
 }
 
 // void taskSerialPrint(void *pvParameters)
@@ -1488,14 +1507,27 @@ void setup()
   Serial.println("Приемник настроен и готов к работе!");
 
   // Инициализация BMP280
-  if (!bme.begin(0x76))
-  {
-    Serial.println("BMP280 не обнаружен!");
+  if (!bme.begin(0x76)) {
+      Serial.println("BMP280 не обнаружен!");
+    } else {
+      Serial.println("BMP280 обнаружен");
   }
-  else
-  {
-    Serial.println("BMP280 обнаружен");
+
+  if (!myENS.begin()) {
+    Serial.println("Air Quality Sensor did not begin.");
+    while (1)
+      ;
   }
+
+  if (humiditySensor.begin() == false)  {
+    Serial.println("AHT20 not detected. Please check wiring. Freezing.");
+    while (1)
+      ; 
+  }
+
+  if (myENS.setOperatingMode(SFE_ENS160_RESET))
+    Serial.println("Ready.");
+    
   // bme.setSampling(Adafruit_BME280::MODE_FORCED,     /* Operating Mode. */
   //                Adafruit_BME280::SAMPLING_X1,     /* Temp. oversampling */
   //                Adafruit_BME280::SAMPLING_X8,    /* Pressure oversampling */
