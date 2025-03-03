@@ -42,6 +42,7 @@ extern TaskHandle_t taskGetTimeHandle = NULL;
 
 // Мьютексы
 SemaphoreHandle_t i2cMutex;
+SemaphoreHandle_t driverMutex;
 
 // Флаги задач
 volatile bool webServerRunning = false;
@@ -357,14 +358,17 @@ void resetNRF905() {
   Serial.println("nRF905 reset complete.");
   delay(100);
    // Переинициализация и настройка модуля
-  if (driver.init()) {
-    Serial.println("nRF905 reinitialized successfully.");
-    driver.setChannel(175, false); // Канал 175 = 439.9 МГц
-    driver.setRF(RH_NRF905::TransmitPowerm2dBm);
-    // Другие необходимые настройки...
-  } else {
-    Serial.println("Failed to reinitialize nRF905.");
-  }
+  if (xSemaphoreTake(driverMutex, portMAX_DELAY) == pdTRUE) {
+    if (driver.init()) {
+        Serial.println("nRF905 reinitialized successfully.");
+        driver.setChannel(175, false); // Канал 175 = 439.9 МГц
+        driver.setRF(RH_NRF905::TransmitPowerm2dBm);
+        // Другие необходимые настройки...
+      } else {
+        Serial.println("Failed to reinitialize nRF905.");
+      }
+    xSemaphoreGive(driverMutex);
+    }
 }
 
 void handleNRFReset() {
@@ -479,8 +483,11 @@ void handleBMEInfo() {
 }
 
 void handlenRFInfo() {
-  String status = getNRF905Status();
-  server.send(200, "text/plain", status);
+  if (xSemaphoreTake(driverMutex, portMAX_DELAY) == pdTRUE) {
+    String status = getNRF905Status();
+    server.send(200, "text/plain", status);
+  xSemaphoreGive(driverMutex);
+  }
 }
 
 void handleSetNRF905() {
@@ -494,10 +501,14 @@ void handleSetNRF905() {
   // Вывод для отладки
   Serial.printf("Получены настройки: channel = %d, band = %s, power = %s\n",
                 channel, (band ? "hiband" : "lowband"), powerStr.c_str());
-                
-  // Применяем настройки через драйвер
-  driver.setChannel(channel, band);
-  driver.setRF(txPower);
+  
+  if (xSemaphoreTake(driverMutex, portMAX_DELAY) == pdTRUE) {
+    // Применяем настройки через драйвер
+    driver.setChannel(channel, band);
+    driver.setRF(txPower);
+  xSemaphoreGive(driverMutex);
+  }
+
 
   // Отправляем ответ клиенту
   server.send(200, "text/plain", "Настройки nRF905 приняты");
@@ -923,26 +934,29 @@ void taskNRF905(void *pvParameters)
 
   while (true)
   {
-    if (driver.available())
-    {
-      uint8_t buf[RH_NRF905_MAX_MESSAGE_LEN];
-      uint8_t len = sizeof(buf);
-      if (driver.recv(buf, &len))
+    if (xSemaphoreTake(driverMutex, portMAX_DELAY) == pdTRUE) {
+      if (driver.available())
       {
-        buf[len] = '\0'; // Завершаем строку
-
-        float temp, hum;
-        if (sscanf((char *)buf, "T:%f H:%f", &temp, &hum) == 2)
+        uint8_t buf[RH_NRF905_MAX_MESSAGE_LEN];
+        uint8_t len = sizeof(buf);
+        if (driver.recv(buf, &len))
         {
-          // Обновляем глобальные переменные
-          temperature = temp;
-          humidity = hum;
-          dewPoint = calculateDewPoint(temperature, humidity);
+          buf[len] = '\0'; // Завершаем строку
 
-          // Сбрасываем таймер, так как данные получены
-          lastReceived = millis();
+          float temp, hum;
+          if (sscanf((char *)buf, "T:%f H:%f", &temp, &hum) == 2)
+          {
+            // Обновляем глобальные переменные
+            temperature = temp;
+            humidity = hum;
+            dewPoint = calculateDewPoint(temperature, humidity);
+
+            // Сбрасываем таймер, так как данные получены
+            lastReceived = millis();
+          }
         }
       }
+    xSemaphoreGive(driverMutex);
     }
     
     // Проверяем, прошло ли больше 10 минут без получения данных
@@ -1515,6 +1529,11 @@ void setup()
   i2cMutex = xSemaphoreCreateMutex();
     if (i2cMutex == NULL) {
     Serial.println("Не удалось создать мьютекс для i2c!");
+  }
+
+  driverMutex = xSemaphoreCreateMutex();
+    if (driverMutex == NULL) {
+    Serial.println("Не удалось создать мьютекс для driver!");
   }
 
   // Создание задач FreeRTOS
