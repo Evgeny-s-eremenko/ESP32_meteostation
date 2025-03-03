@@ -11,8 +11,8 @@
 #include <time.h>
 #include <Forecaster.h>
 #include <WebSocketsServer.h>
-#include "SparkFun_ENS160.h"
-#include <SparkFun_Qwiic_Humidity_AHT20.h>
+// #include "SparkFun_ENS160.h"
+// #include <SparkFun_Qwiic_Humidity_AHT20.h>
 
 
 
@@ -41,6 +41,7 @@ extern TaskHandle_t taskBMP280Handle = NULL;
 extern TaskHandle_t taskSendDataToInfluxDBHandle = NULL;
 extern TaskHandle_t taskForecasterHandle = NULL;
 extern TaskHandle_t taskGetTimeHandle = NULL;
+// extern TaskHandle_t taskTVOCReadHandle = NULL;
 
 // Мьютексы
 SemaphoreHandle_t i2cMutex;
@@ -55,6 +56,7 @@ volatile bool BMP280Running = false;
 volatile bool sendDataToInfluxDBRunning = false;
 volatile bool forecasterRunning = false;
 volatile bool getTimeRunning = false;
+// volatile bool TVOCReadRunning = false;
 
 // Функция проверки состояния задачи
 bool isTaskActive(TaskHandle_t taskHandle) {
@@ -77,6 +79,9 @@ Forecaster cond;
 #define NRF905_CS 15
 #define NRF905_PWR_UP_PIN 26 // пин принудительного сброса nRF905
 
+// #define SDA_PIN 21
+// #define SCL_PIN 22
+
 // --------------------------------- Объекты ---------------------------------
 
 // ---------------------- Определение пинов serial2 --------------------------
@@ -93,8 +98,8 @@ HardwareSerial mh19(1); //Serial1 для датчика CO2
 
 
 Adafruit_BME280 bme;                                  // Датчик давления BMP280
-SparkFun_ENS160 myENS;                                // Датчик качества воздуха ENS160
-AHT20 humiditySensor;                                 // Датчик температуры и влажности AHT21
+// SparkFun_ENS160 myENS;                                // Датчик качества воздуха ENS160
+// AHT20 humiditySensor;                                 // Датчик температуры и влажности AHT21
 RH_NRF905 driver(NRF905_CE, NRF905_TX_EN, NRF905_CS); // Радиомодуль nRF905
 WebServer server(80);                                 // Веб-сервер на порту 80
 WebSocketsServer webSocket(81);                       // WebSocket сервер на порту 81
@@ -131,9 +136,9 @@ volatile float trend = 0.0f;
 float forecast = 0;
 int month = -1;
 volatile int ppm = 400;
-volatile int TVOC = 0;
-volatile int AQI = 1;
-volatile int ECO2 = 400;
+// volatile int TVOC = 0;
+// volatile int AQI = 1;
+// volatile int ECO2 = 400;
 
 // Переменная для хранения текущей страницы Nextion
 String currentPage = "page0";
@@ -575,7 +580,12 @@ void sendDataToInfluxDB()
 
     if (homeDP != 0.0f)
     {
-      influxDBLine += "homeDP=" + String(homeDP, 2);
+      influxDBLine += "homeDP=" + String(homeDP, 2) + ",";
+    }
+
+    if (ppm != 0)
+    {
+      influxDBLine += "CO2=" + String(ppm);
     }
   String url = "http://" + String(influxDBHost) + ":" + String(influxDBPort) + "/write?db=" + String(influxDBDatabase);
 
@@ -985,12 +995,6 @@ void taskNRF905(void *pvParameters)
 void taskBMP280(void *pvParameters) {
   while (true) {
     if (xSemaphoreTake(i2cMutex, portMAX_DELAY) == pdTRUE) {
-      if (!bme.begin(0x76)) { // Проверка датчика (I2C-адрес 0x76)
-        Serial.println("Ошибка связи с BMP280!");
-        vTaskDelay(5000 / portTICK_PERIOD_MS);
-        continue;
-      }
-
       pressure = bme.readPressure() / 100.0f; // Получаем давление
       homeTemp = bme.readTemperature();
       homeHum = bme.readHumidity();
@@ -1104,10 +1108,15 @@ void sendPage1Data() {
   nextion.print(cmd);
   nextion.write(0xFF); nextion.write(0xFF); nextion.write(0xFF);
 
-  // t2: pressure (используем ту же переменную)
+  // t2: CO2
   cmd = "t4.txt=\"" + String(ppm) + " ppm\"";
   nextion.print(cmd);
   nextion.write(0xFF); nextion.write(0xFF); nextion.write(0xFF);
+
+  // // t2: CO2
+  // cmd = "t5.txt=\"" + String(TVOC) + " ppb\"";
+  // nextion.print(cmd);
+  // nextion.write(0xFF); nextion.write(0xFF); nextion.write(0xFF);
 }
 
 // Функция синхронизации состояния кнопок Nextion
@@ -1407,9 +1416,49 @@ void taskCO2Read(void *pvParameters) {
   }
 }
 
-void taskTVOCRead(void *pvParameters) {
-  
-}
+// void taskTVOCRead(void *pvParameters) {
+//   unsigned long lastCompensationTime = millis();
+//   float rH = 0.0f;
+//   float tempAHT = 0.0f;
+
+//   while (true) {
+//     if (xSemaphoreTake(i2cMutex, portMAX_DELAY) == pdTRUE) {
+//       // Считываем данные с ENS160
+//       AQI = myENS.getAQI();
+//       TVOC = myENS.getTVOC();
+//       ECO2 = myENS.getECO2();
+//       vTaskDelay(50 / portTICK_PERIOD_MS);
+
+//       // Считываем данные с AHT21
+//       rH = humiditySensor.getHumidity();
+//       tempAHT = humiditySensor.getTemperature();
+
+//       xSemaphoreGive(i2cMutex);
+//     } else {
+//       Serial.println("Не удалось получить i2cMutex!");
+//     }
+
+//     // Компенсация каждые 2 минуты
+//     if ((millis() - lastCompensationTime) >= 120000) {
+//       if (xSemaphoreTake(i2cMutex, portMAX_DELAY) == pdTRUE) {
+//         myENS.setTempCompensationCelsius(tempAHT);
+//         myENS.setRHCompensationFloat(rH);
+
+//         Serial.println("---------------------------");
+//         Serial.printf("Compensation Relative Humidity (%%): %.2f\n", myENS.getRH());
+//         Serial.printf("Compensation Temperature (Celsius): %.2f\n", myENS.getTempCelsius());
+//         Serial.println("---------------------------");
+
+//         xSemaphoreGive(i2cMutex);
+//         lastCompensationTime = millis(); // Обновляем время компенсации
+//       }
+//     }
+
+//     // Задержка 1 секунда между циклами
+//     vTaskDelay(1000 / portTICK_PERIOD_MS);
+//   }
+// }
+
 
 // void taskSerialPrint(void *pvParameters)
 // {
@@ -1511,14 +1560,16 @@ void setup()
   if (!driver.init())
   {
     Serial.println("Ошибка инициализации NRF905!");
-    while (1)
-      ;
+  } else {
+    Serial.println("NRF905 инициализирован");
   }
 
   // Настройка канала и диапазона
   driver.setChannel(175, false); // Канал 175 = 439.9 МГц
   driver.setRF(RH_NRF905::TransmitPower10dBm);
   Serial.println("Приемник настроен и готов к работе!");
+
+  // Wire.begin(SDA_PIN, SCL_PIN);
 
   // Инициализация BMP280
   if (!bme.begin(0x76)) {
@@ -1527,20 +1578,21 @@ void setup()
       Serial.println("BMP280 обнаружен");
   }
 
-  if (!myENS.begin()) {
-    Serial.println("Air Quality Sensor did not begin.");
-    while (1)
-      ;
-  }
+  // if (!myENS.begin()) {
+  //     Serial.println("Air Quality Sensor did not begin.");
+  //   } else {
+  //     Serial.println("ENS160 обнаружен");
 
-  if (humiditySensor.begin() == false)  {
-    Serial.println("AHT20 not detected. Please check wiring. Freezing.");
-    while (1)
-      ; 
-  }
+  // }
 
-  if (myENS.setOperatingMode(SFE_ENS160_RESET))
-    Serial.println("Ready.");
+  // if (humiditySensor.begin() == false)  {
+  //   Serial.println("AHT20 not detected. Please check wiring. Freezing.");
+  // } else {
+  //   Serial.println("AHT21 обнаружен");
+  // }
+
+  // if (myENS.setOperatingMode(SFE_ENS160_RESET))
+  //   Serial.println("Ready.");
     
   // bme.setSampling(Adafruit_BME280::MODE_FORCED,     /* Operating Mode. */
   //                Adafruit_BME280::SAMPLING_X1,     /* Temp. oversampling */
@@ -1573,6 +1625,7 @@ void setup()
   xTaskCreate(taskNRF905, "NRF905 Receiver", 4096, NULL, 4, &taskNRF905Handle);
   xTaskCreate(taskBMP280, "BMP280 Sensor", 2048, NULL, 3, &taskBMP280Handle);
   xTaskCreate(taskCO2Read, "CO2 read task", 2048, NULL, 2, &taskCO2ReadHandle);
+  // xTaskCreate(taskTVOCRead, "ENS160 read task", 4096, NULL, 1, &taskTVOCReadHandle);
   xTaskCreate(taskGetTime, "Get NTP Time", 4096, NULL, 2, &taskGetTimeHandle);
   xTaskCreate(taskSendDataToInfluxDB, "InfluxDBTask", 10240, NULL, 4, &taskSendDataToInfluxDBHandle);
   xTaskCreatePinnedToCore(taskWebServer, "Web Server", 20480, NULL, 5, &taskWebServerHandle, 1);
