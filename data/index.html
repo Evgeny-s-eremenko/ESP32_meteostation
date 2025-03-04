@@ -100,6 +100,15 @@
             height: 80px;
         }
 
+        #CO2Icon {
+            position: absolute;
+            left: 20px;
+            top: 35%;
+            transform: translateY(-50%);
+            width: 80px;
+            height: 80px;
+        }
+
         #trendIcon {
             position: absolute;
             right: 20px;
@@ -255,6 +264,15 @@
             <div class="label">Атмосферное давление</div>
             <div class="progress-bar">
                 <div class="progress-bar-fill" id="pressureBar"></div>
+            </div>
+        </div>
+        <div class="pressure-widget">
+            <h2>CO2</h2>
+            <img id="CO2Icon" src="/co2.png" alt="CO2 Icon">
+            <div class="value" id="CO2"></div>
+            <div class="label">Концентрация CO2</div>
+            <div class="progress-bar">
+                <div class="progress-bar-fill" id="CO2Bar"></div>
             </div>
         </div>
         <button id="toggleGraphButton" class="widget">Показать/скрыть график</button>

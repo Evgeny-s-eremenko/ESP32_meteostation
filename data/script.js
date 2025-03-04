@@ -5,6 +5,13 @@ function getColor(value, min, max) {
     return d3.interpolateRdYlBu(1 - t);
 }
 
+function getColorAirQuality(value, min, max) {
+    const t = (value - min) / (max - min);
+    // d3.interpolateRdYlBu выдаёт цвет при t=0 красный, t=1 синий,
+    // поэтому, чтобы получить синий при низком значении и красный при высоком, переворачиваем t:
+    return d3.interpolateRdYlGn(1 - t);
+}
+
 function updateIndicator(value, min, max, elementId) {
     const progressBar = document.getElementById(elementId);
     if (!progressBar) {
@@ -14,6 +21,17 @@ function updateIndicator(value, min, max, elementId) {
     const percentage = ((value - min) / (max - min)) * 100;
     progressBar.style.width = `${percentage}%`;
     progressBar.style.backgroundColor = getColor(value, min, max);
+}
+
+function updateIndicatorAirQuality(value, min, max, elementId) {
+    const progressBar = document.getElementById(elementId);
+    if (!progressBar) {
+      console.warn(`Элемент с ID ${elementId} не найден.`);
+      return;
+    }
+    const percentage = ((value - min) / (max - min)) * 100;
+    progressBar.style.width = `${percentage}%`;
+    progressBar.style.backgroundColor = getColorAirQuality(value, min, max);
 }
 
 function updateWeatherIcon(forecast) {
@@ -60,7 +78,7 @@ function updateTrendIcon(trend) {
 
 function updateTable(data) {
     if (!data || data.temperature === undefined || data.humidity === undefined || 
-        data.dewPoint === undefined || data.pressure === undefined || data.homeTemp === undefined || data.homeHum === undefined || data.homeDP === undefined) {
+        data.dewPoint === undefined || data.pressure === undefined || data.homeTemp === undefined || data.homeHum === undefined || data.homeDP === undefined || data.CO2 === undefined) {
       console.warn("Некорректные данные для обновления таблицы");
       document.getElementById("temperature").textContent = "Данные отсутствуют";
       document.getElementById("humidity").textContent = "Данные отсутствуют";
@@ -69,6 +87,7 @@ function updateTable(data) {
       document.getElementById("homeTemp").textContent = "Данные отсутствуют";
       document.getElementById("homeHum").textContent = "Данные отсутствуют";
       document.getElementById("homeDP").textContent = "Данные отсутствуют";
+      document.getElementById("CO2").textContent = "Данные отсутствуют";
       return;
     }
   
@@ -79,6 +98,7 @@ function updateTable(data) {
     document.getElementById("homeTemp").textContent = data.homeTemp.toFixed(2) + " °C";
     document.getElementById("homeHum").textContent = data.homeHum.toFixed(2) + " %";
     document.getElementById("homeDP").textContent = data.homeDP.toFixed(2) + " °C";
+    document.getElementById("CO2").textContent = data.CO2.toFixed(2) + " ppm";
 
     // Обновляем индикаторы
     updateIndicator(data.temperature, -35, 35, 'temperatureBar'); // Температура на улице
@@ -88,6 +108,7 @@ function updateTable(data) {
     updateIndicator(data.dewPoint, -35, 30, 'dewPointBar'); // Точка росы на улице
     updateIndicator(data.homeDP, -20, 30, 'homeDPBar'); // Точка росы дома
     updateIndicator(data.pressure, 956, 1056, 'pressureBar'); // Давление
+    updateIndicatorAirQuality(data.CO2, 400, 5000, 'CO2Bar');
 
     // Обновляем иконку погоды
     updateWeatherIcon(data.forecast);
@@ -103,7 +124,7 @@ function fetchDataAndUpdate() {
             return response.json();
         })
         .then(data => {
-            if (data && data.temperature && data.humidity && data.dewPoint && data.pressure && data.homeTemp && data.homeHum && data.homeDP) {
+            if (data && data.temperature && data.humidity && data.dewPoint && data.pressure && data.homeTemp && data.homeHum && data.homeDP && data.CO2) {
                 updateTable(data); // Обновляем только таблицу
             } else {
                 console.warn("Данные отсутствуют или некорректны.");
