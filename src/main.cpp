@@ -174,6 +174,7 @@ void handleGraphData() {
   doc["homeDP"] = homeDP;
   doc["forecast"] = forecast;
   doc["trend"] = trend;
+  doc["CO2"] = ppm;
 
   String json;
   serializeJson(doc, json);
