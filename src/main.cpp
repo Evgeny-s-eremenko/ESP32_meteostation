@@ -1,6 +1,8 @@
 #include <Arduino.h>
 #include <RH_NRF905.h>
 #include <Adafruit_BME280.h>
+#include <Adafruit_AHTX0.h>
+#include "ScioSense_ENS160.h"
 #include <WiFi.h>
 #include <WebServer.h>
 #include <Update.h>
@@ -11,8 +13,7 @@
 #include <time.h>
 #include <Forecaster.h>
 #include <WebSocketsServer.h>
-// #include "SparkFun_ENS160.h"
-// #include <SparkFun_Qwiic_Humidity_AHT20.h>
+
 
 
 
@@ -41,7 +42,7 @@ extern TaskHandle_t taskBMP280Handle = NULL;
 extern TaskHandle_t taskSendDataToInfluxDBHandle = NULL;
 extern TaskHandle_t taskForecasterHandle = NULL;
 extern TaskHandle_t taskGetTimeHandle = NULL;
-// extern TaskHandle_t taskTVOCReadHandle = NULL;
+extern TaskHandle_t taskTVOCReadHandle = NULL;
 
 // Мьютексы
 SemaphoreHandle_t i2cMutex;
@@ -56,7 +57,7 @@ volatile bool BMP280Running = false;
 volatile bool sendDataToInfluxDBRunning = false;
 volatile bool forecasterRunning = false;
 volatile bool getTimeRunning = false;
-// volatile bool TVOCReadRunning = false;
+volatile bool TVOCReadRunning = false;
 
 // Функция проверки состояния задачи
 bool isTaskActive(TaskHandle_t taskHandle) {
@@ -68,8 +69,6 @@ bool isTaskActive(TaskHandle_t taskHandle) {
          (state == eBlocked);
 }
 
-Forecaster cond;
-
 // ---------------------------- Пины и устройства ----------------------------
 #define NRF905_SPI_SCK 14
 #define NRF905_SPI_MISO 12
@@ -79,8 +78,6 @@ Forecaster cond;
 #define NRF905_CS 15
 #define NRF905_PWR_UP_PIN 26 // пин принудительного сброса nRF905
 
-// #define SDA_PIN 21
-// #define SCL_PIN 22
 
 // --------------------------------- Объекты ---------------------------------
 
@@ -98,11 +95,12 @@ HardwareSerial mh19(1); //Serial1 для датчика CO2
 
 
 Adafruit_BME280 bme;                                  // Датчик давления BMP280
-// SparkFun_ENS160 myENS;                                // Датчик качества воздуха ENS160
-// AHT20 humiditySensor;                                 // Датчик температуры и влажности AHT21
+ScioSense_ENS160      ens160(ENS160_I2CADDR_1);       // Датчик качества воздуха ENS160
+Adafruit_AHTX0 aht;                                   // Датчик компенсации T и H AHT21
 RH_NRF905 driver(NRF905_CE, NRF905_TX_EN, NRF905_CS); // Радиомодуль nRF905
 WebServer server(80);                                 // Веб-сервер на порту 80
 WebSocketsServer webSocket(81);                       // WebSocket сервер на порту 81
+Forecaster cond;
 
 
 // -------------------------- Объявления функций (прототипы) --------------------------
@@ -136,9 +134,9 @@ volatile float trend = 0.0f;
 float forecast = 0;
 int month = -1;
 volatile int ppm = 400;
-// volatile int TVOC = 0;
-// volatile int AQI = 1;
-// volatile int ECO2 = 400;
+volatile int TVOC = 0;
+volatile int AQI = 1;
+volatile int ECO2 = 400;
 
 // Переменная для хранения текущей страницы Nextion
 String currentPage = "page0";
@@ -260,17 +258,17 @@ void handleUpdateUpload() {
   HTTPUpload& upload = server.upload();
 
   if (upload.status == UPLOAD_FILE_START) {
-    Serial.printf("Начало обновления: %s\n", upload.filename.c_str());
+    Serial.printf("Update has begun: %s\n", upload.filename.c_str());
 
     // Простейшая логика: если имя файла содержит "littlefs", обновляем файловую систему,
     // иначе считаем, что это обновление прошивки.
     if (upload.filename.indexOf("littlefs") >= 0) {
-      Serial.println("Обновление файловой системы");
+      Serial.println("Updating filesystem");
       if (!Update.begin(UPDATE_SIZE_UNKNOWN, U_SPIFFS)) { // или U_LITTLEFS, если настроено
         Update.printError(Serial);
       }
     } else {
-      Serial.println("Обновление прошивки");
+      Serial.println("Updating firmware");
       if (!Update.begin(UPDATE_SIZE_UNKNOWN, U_FLASH)) {
         Update.printError(Serial);
       }
@@ -283,14 +281,14 @@ void handleUpdateUpload() {
   }
   else if (upload.status == UPLOAD_FILE_END) {
     if (Update.end(true)) {
-      Serial.printf("Обновление завершено, записано байт: %u\n", upload.totalSize);
+      Serial.printf("Update completed, bytes written: %u\n", upload.totalSize);
     } else {
       Update.printError(Serial);
     }
   }
   else if (upload.status == UPLOAD_FILE_ABORTED) {
     Update.end();
-    Serial.println("Обновление прервано");
+    Serial.println("The update was interrupted");
   }
 }
 
@@ -515,7 +513,7 @@ void handleSetNRF905() {
   RH_NRF905::TransmitPower txPower = getTransmitPowerFromString(powerStr);
   
   // Вывод для отладки
-  Serial.printf("Получены настройки: channel = %d, band = %s, power = %s\n",
+  Serial.printf("Settings received: channel = %d, band = %s, power = %s\n",
                 channel, (band ? "hiband" : "lowband"), powerStr.c_str());
   
   if (xSemaphoreTake(driverMutex, portMAX_DELAY) == pdTRUE) {
@@ -527,7 +525,7 @@ void handleSetNRF905() {
 
 
   // Отправляем ответ клиенту
-  server.send(200, "text/plain", "Настройки nRF905 приняты");
+  server.send(200, "text/plain", "Settings nRF905 applied");
 }
 
 // Функция для отправки данных в InfluxDB (без аргументов)
@@ -625,13 +623,13 @@ int getMonth() {
 void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t length) {
   switch (type) {
     case WStype_CONNECTED:
-      Serial.printf("Клиент %u подключился\n", num);
+      Serial.printf("Client %u connected\n", num);
       break;
     case WStype_DISCONNECTED:
-      Serial.printf("Клиент %u отключился\n", num);
+      Serial.printf("Client %u disconnected\n", num);
       break;
     case WStype_TEXT:
-      Serial.printf("Получено сообщение: %s\n", payload);
+      Serial.printf("Message received: %s\n", payload);
       break;
   }
 }
@@ -664,7 +662,7 @@ void switchTaskWebServer() {
     vTaskSuspend(taskWebServerHandle);
     server.stop();
     webServerRunning = false;
-    Serial.println("WebServer: остановлен");
+    Serial.println("WebServer: stopped");
   } else {
     // Если задача неактивна - запускаем/возобновляем
     if (taskWebServerHandle == NULL) {
@@ -676,10 +674,10 @@ void switchTaskWebServer() {
         5,
         &taskWebServerHandle
       );
-      Serial.println("WebServer: создан и запущен");
+      Serial.println("WebServer: created and running");
     } else {
       vTaskResume(taskWebServerHandle);
-      Serial.println("WebServer: возобновлён");
+      Serial.println("WebServer: resumed");
     }
     server.begin();
     webServerRunning = true;
@@ -704,7 +702,7 @@ void switchTaskInfluxDB() {
         4,
         &taskSendDataToInfluxDBHandle
       );
-      Serial.println("Отправка в базу данных: создана и запущена");
+      Serial.println("Отправка в базу данных: created and running");
     } else {
       vTaskResume(taskSendDataToInfluxDBHandle);
       Serial.println("Отправка в базу данных: возобновлёна");
@@ -733,7 +731,7 @@ void switchTaskCO2Read() {
         2,
         &taskCO2ReadHandle
       );
-      Serial.println("Чтение с датчика CO2: создано и запущено");
+      Serial.println("Чтение с датчика CO2: created and running");
     } else {
       vTaskResume(taskCO2ReadHandle);
       Serial.println("Чтение с датчика CO2: возобновлёно");
@@ -760,7 +758,7 @@ void switchTaskNRF905() {
         4,
         &taskNRF905Handle
       );
-      Serial.println("Прием с nRF905: создан и запущен");
+      Serial.println("Прием с nRF905: created and running");
     } else {
       vTaskResume(taskNRF905Handle);
       Serial.println("Прием с nRF905: возобновлён");
@@ -789,7 +787,7 @@ void switchTaskNextion() {
         3,
         &processNextionTaskHandle
       );
-      Serial.println("Обновление дисплея: создано и запущено");
+      Serial.println("Обновление дисплея: created and running");
     } else {
       vTaskResume(processNextionTaskHandle);
       nextionWakeUP();
@@ -817,7 +815,7 @@ void switchTaskBMP280() {
         3,
         &taskBMP280Handle
       );
-      Serial.println("Чтение с BME280: создано и запущено");
+      Serial.println("Чтение с BME280: created and running");
     } else {
       vTaskResume(taskBMP280Handle);
       Serial.println("Чтение с BME280: возобновлёно");
@@ -832,7 +830,7 @@ void switchTaskForecaster() {
     // Если задача активна - останавливаем
     vTaskSuspend(taskForecasterHandle);
     forecasterRunning = false;
-    Serial.println("Прогноз погоды: остановлено");
+    Serial.println("Forecast: stopped");
   } else {
     // Если задача неактивна - запускаем/возобновляем
     if (taskForecasterHandle == NULL) {
@@ -844,10 +842,10 @@ void switchTaskForecaster() {
         1,
         &taskForecasterHandle
       );
-      Serial.println("Прогноз погоды: создано и запущено");
+      Serial.println("Forecast: created and running");
     } else {
       vTaskResume(taskForecasterHandle);
-      Serial.println("Прогноз погоды: возобновлёно");
+      Serial.println("Forecast: resumed");
     }
     forecasterRunning = true;
   }
@@ -859,7 +857,7 @@ void switchTaskNTP() {
     // Если задача активна - останавливаем
     vTaskSuspend(taskGetTimeHandle);
     getTimeRunning = false;
-    Serial.println("NTP: остановлено");
+    Serial.println("NTP: stopped");
   } else {
     // Если задача неактивна - запускаем/возобновляем
     if (taskGetTimeHandle == NULL) {
@@ -871,10 +869,10 @@ void switchTaskNTP() {
         2,
         &taskGetTimeHandle
       );
-      Serial.println("NTP: создано и запущено");
+      Serial.println("NTP: created and running");
     } else {
       vTaskResume(taskGetTimeHandle);
-      Serial.println("NTP: возобновлёно");
+      Serial.println("NTP: resumed");
     }
     getTimeRunning = true;
   }
@@ -983,7 +981,7 @@ void taskNRF905(void *pvParameters)
     // Проверяем, прошло ли больше 10 минут без получения данных
     if ((millis() - lastReceived) >= 600000)  // 600000 мс = 10 минут
     {
-      Serial.println("Нет данных более 10 минут. Выполняется сброс nRF905...");
+      Serial.println("No data available for more than 10 minutes. Resetting nRF905...");
       resetNRF905();  // Вызываем функцию сброса nRF905
       // Обновляем lastReceived, чтобы не вызывать сброс повторно сразу же
       lastReceived = millis();
@@ -1014,7 +1012,7 @@ void taskGetTime(void *pvParameters) {
       int currentMonth = timeinfo.tm_mon + 1;  // tm_mon возвращает месяц от 0 до 11
       //Serial.printf("Текущий месяц: %d\n", currentMonth);
     } else {
-      Serial.println("Не удалось получить время через NTP.");
+      Serial.println("Failed to get time via NTP.");
     }
     vTaskDelay(60000 / portTICK_PERIOD_MS);  // Проверка времени раз в минуту
   }
@@ -1033,11 +1031,11 @@ void taskForecast(void *pvParameters) {
     } else  {
       vTaskDelay((5000) / portTICK_PERIOD_MS);
     }
-    Serial.print("Отправлены параметры в forecast: ");
+    Serial.print("Parameters sent to forecast: ");
     Serial.println(p);
     forecast = cond.getCast();
     trend = cond.getTrend() / 100.0f;
-    Serial.print("Baric tendence: ");
+    Serial.print("Barometric tendence: ");
     Serial.print(trend);
     Serial.println(" hPa");
 
@@ -1246,7 +1244,7 @@ void processNextionMessageBinary(const uint8_t* msg, size_t len) {
         currentPage = "unknown";
         break;
     }
-    Serial.print("Смена страницы: ");
+    Serial.print("Page changed: ");
     Serial.println(currentPage);
   }
   else if (msg[0] == 0x65) {
@@ -1254,68 +1252,68 @@ void processNextionMessageBinary(const uint8_t* msg, size_t len) {
     // Формат: 65, <PageID>, <ComponentID>, <EventValue>, FF, FF, FF
     uint8_t compID = msg[2];
     if (compID == 0x03) {
-      Serial.println("Нажата кнопка b2");
+      Serial.println("Button pressed: b2");
       handleRestartFromNextion();
     }
     else if (compID == 0x04) {
-      Serial.println("Нажата кнопка b3");
+      Serial.println("Button pressed: b3");
       resetNRF905();
     }
     else if (compID == 0x05)  {
-      Serial.println("Нажата кнопка b4");
+      Serial.println("Button pressed: b4");
       ESP.restart();
     }
     else if (compID == 0x06) {
-      Serial.println("Нажата кнопка bt0");
+      Serial.println("Button pressed: bt0");
       // Переключаем веб-сервер
       switchTaskWebServer();
       // Синхронизируем состояние dual-state кнопки
       syncWebServerButtonState();
     }
     else if (compID == 0x07) {
-      Serial.println("Нажата кнопка bt1");
+      Serial.println("Button pressed: bt1");
       // Переключаем веб-сервер
       switchTaskNRF905();
       // Синхронизируем состояние dual-state кнопки
       syncnRF905ButtonState();
     }
     else if (compID == 0x08) {
-      Serial.println("Нажата кнопка bt2");
+      Serial.println("Button pressed: bt2");
       // Переключаем веб-сервер
       switchTaskCO2Read();
       // Синхронизируем состояние dual-state кнопки
       syncCO2ButtonState();
     }
     else if (compID == 0x09) {
-      Serial.println("Нажата кнопка bt3");
+      Serial.println("Button pressed: bt3");
       // Переключаем веб-сервер
       switchTaskNextion();
       // Синхронизируем состояние dual-state кнопки
       syncNextionButtonState();
     }
     else if (compID == 0x0A) {
-      Serial.println("Нажата кнопка bt4");
+      Serial.println("Button pressed: bt4");
       // Переключаем веб-сервер
       switchTaskBMP280();
       // Синхронизируем состояние dual-state кнопки
       syncBMP280ButtonState();
     }
     else if (compID == 0x0B) {
-      Serial.println("Нажата кнопка bt5");
+      Serial.println("Button pressed: bt5");
       // Переключаем веб-сервер
       switchTaskInfluxDB();
       // Синхронизируем состояние dual-state кнопки
       syncInfluxDBButtonState();
     }
     else if (compID == 0x0C) {
-      Serial.println("Нажата кнопка bt6");
+      Serial.println("Button pressed: bt6");
       // Переключаем веб-сервер
       switchTaskForecaster();
       // Синхронизируем состояние dual-state кнопки
       syncForecastButtonState();
     }
     else if (compID == 0x0D) {
-      Serial.println("Нажата кнопка bt7");
+      Serial.println("Button pressed: bt7");
       // Переключаем веб-сервер
       switchTaskNTP();
       // Синхронизируем состояние dual-state кнопки
@@ -1395,17 +1393,17 @@ void taskCO2Read(void *pvParameters) {
         errorCount = 0; // Сброс ошибок при успехе
       } else {
         errorCount++;
-        Serial.printf("Ошибка CRC! Счётчик: %d/%d\n", errorCount, MAX_ERRORS);
+        Serial.printf("MH-Z1911A CRC Error! Counter: %d/%d\n", errorCount, MAX_ERRORS);
       }
     } else {
       errorCount++;
-      Serial.printf("Ошибка чтения! Счётчик: %d/%d\n", errorCount, MAX_ERRORS);
+      Serial.printf("Read error from MH-Z1911A! Counter: %d/%d\n", errorCount, MAX_ERRORS);
     }
 
     // Проверка на превышение ошибок
     if (errorCount >= MAX_ERRORS) {
-      Serial.print("Датчик не подключен");
-      Serial.println("Удаляю задачу чтения с датчика CO2...");
+      Serial.print("The sensor MH-Z1911A is not connected");
+      Serial.println("Deleting the reading task from the sensor MH-Z1911A...");
       mh19.end();
       taskCO2ReadHandle = NULL;
       CO2ReadRunning = false;
@@ -1417,48 +1415,77 @@ void taskCO2Read(void *pvParameters) {
   }
 }
 
-// void taskTVOCRead(void *pvParameters) {
-//   unsigned long lastCompensationTime = millis();
-//   float rH = 0.0f;
-//   float tempAHT = 0.0f;
+void taskTVOCRead(void *pvParameters) {
+  unsigned long lastCompensationTime = millis();
+  sensors_event_t humidity, temp;
+  float rH;
+  float tempAHT;
 
-//   while (true) {
-//     if (xSemaphoreTake(i2cMutex, portMAX_DELAY) == pdTRUE) {
-//       // Считываем данные с ENS160
-//       AQI = myENS.getAQI();
-//       TVOC = myENS.getTVOC();
-//       ECO2 = myENS.getECO2();
-//       vTaskDelay(50 / portTICK_PERIOD_MS);
+  const int MAX_ERRORS = 3;
+  int ens160ErrorCount = 0;
+  int aht21ErrorCount = 0;
 
-//       // Считываем данные с AHT21
-//       rH = humiditySensor.getHumidity();
-//       tempAHT = humiditySensor.getTemperature();
+  while (true) {
+      // Получаем доступ к I²C
+      if (xSemaphoreTake(i2cMutex, portMAX_DELAY) == pdTRUE) {
 
-//       xSemaphoreGive(i2cMutex);
-//     } else {
-//       Serial.println("Не удалось получить i2cMutex!");
-//     }
+          // Проверка доступности ENS160
+          if (ens160.available()) {
+              ens160.measure(true);
+              AQI = ens160.getAQI();
+              TVOC = ens160.getTVOC(); 
+              ECO2 = ens160.geteCO2();
+              Serial.print("AQI: ");
+              Serial.print(AQI);
+              Serial.print("\t");
+              Serial.print("TVOC: ");
+              Serial.print(TVOC);
+              Serial.println("ppb\t");
+              ens160ErrorCount = 0;  // Сброс счётчика ошибок
+          } else {
+              ens160ErrorCount++;
+              Serial.printf("Error ENS160! Attempt %d of %d\n", ens160ErrorCount, MAX_ERRORS);
+          }
 
-//     // Компенсация каждые 2 минуты
-//     if ((millis() - lastCompensationTime) >= 120000) {
-//       if (xSemaphoreTake(i2cMutex, portMAX_DELAY) == pdTRUE) {
-//         myENS.setTempCompensationCelsius(tempAHT);
-//         myENS.setRHCompensationFloat(rH);
+          vTaskDelay(50 / portTICK_PERIOD_MS);
 
-//         Serial.println("---------------------------");
-//         Serial.printf("Compensation Relative Humidity (%%): %.2f\n", myENS.getRH());
-//         Serial.printf("Compensation Temperature (Celsius): %.2f\n", myENS.getTempCelsius());
-//         Serial.println("---------------------------");
+          // Проверка доступности AHT21
+          if (aht.getEvent(&humidity, &temp)) {
+              rH = humidity.relative_humidity;
+              tempAHT = temp.temperature;
+              aht21ErrorCount = 0;  // Сброс счётчика ошибок
+          } else {
+              aht21ErrorCount++;
+              Serial.printf("Error AHT21! Attempt %d of %d\n", aht21ErrorCount, MAX_ERRORS);
+          }
 
-//         xSemaphoreGive(i2cMutex);
-//         lastCompensationTime = millis(); // Обновляем время компенсации
-//       }
-//     }
+          xSemaphoreGive(i2cMutex);
+      } else {
+          Serial.println("Failed to get i2cMutex!");
+      }
 
-//     // Задержка 1 секунда между циклами
-//     vTaskDelay(1000 / portTICK_PERIOD_MS);
-//   }
-// }
+      // Удаление задачи при превышении ошибок
+      if (ens160ErrorCount >= MAX_ERRORS || aht21ErrorCount >= MAX_ERRORS) {
+          Serial.println("Sensors not responce. Deleting taskTVOCRead...");
+          taskTVOCReadHandle = NULL;
+          TVOCReadRunning = false;
+          vTaskDelete(NULL);  // Удаляем текущую задачу
+      }
+
+      // Компенсация раз в минуту
+      if ((millis() - lastCompensationTime) >= 60000) {
+          if (xSemaphoreTake(i2cMutex, portMAX_DELAY) == pdTRUE) {
+              ens160.set_envdata(tempAHT, rH);
+              Serial.println("Setting temperature and humidity calibration values:");
+              Serial.printf("Temperature: %.2f °C, humidity: %.2f %%\n", tempAHT, rH);
+              xSemaphoreGive(i2cMutex);
+              lastCompensationTime = millis();  // Обновляем время
+          }
+      }
+
+      vTaskDelay(1000 / portTICK_PERIOD_MS);  // Задержка 1 секунда между циклами
+  }
+}
 
 
 // void taskSerialPrint(void *pvParameters)
@@ -1501,7 +1528,7 @@ void setup()
   // Настройка пина для управления PWR_UP nRF905
   pinMode(NRF905_PWR_UP_PIN, OUTPUT);
   digitalWrite(NRF905_PWR_UP_PIN, HIGH);  // В нормальном режиме модуль должен получать питание (HIGH)
-  Serial.println("Установка PWR_UP в состояние HIGH");
+  Serial.println("Powering on nRF905...");
 
   SPI.begin(NRF905_SPI_SCK, NRF905_SPI_MISO, NRF_SPI_MOSI);
   Serial.println("SPI Initialized");
@@ -1528,9 +1555,9 @@ void setup()
   while (WiFi.status() != WL_CONNECTED)
   {
     delay(1000);
-    Serial.println("Подключение к Wi-Fi...");
+    Serial.println("Connecting to Wi-Fi...");
   }
-  Serial.println("Wi-Fi подключен");
+  Serial.println("Wi-Fi connected!");
   Serial.println(WiFi.localIP());
 
   // Настройка сервера
@@ -1560,40 +1587,49 @@ void setup()
   // Инициализация радиомодуля
   if (!driver.init())
   {
-    Serial.println("Ошибка инициализации NRF905!");
+    Serial.println("Failed initialize nRF905!");
   } else {
-    Serial.println("NRF905 инициализирован");
+    Serial.println("nRF905 initialized");
   }
 
   // Настройка канала и диапазона
   driver.setChannel(175, false); // Канал 175 = 439.9 МГц
   driver.setRF(RH_NRF905::TransmitPower10dBm);
-  Serial.println("Приемник настроен и готов к работе!");
+  Serial.println("nRF905 configured and ready!");
 
-  // Wire.begin(SDA_PIN, SCL_PIN);
 
-  // Инициализация BMP280
+  // Инициализация датчиков i2c
   if (!bme.begin(0x76)) {
-      Serial.println("BMP280 не обнаружен!");
+      Serial.println("BME280 not detected. Please check wiring!");
     } else {
-      Serial.println("BMP280 обнаружен");
+      Serial.println("BME280 detected");
   }
 
-  // if (!myENS.begin()) {
-  //     Serial.println("Air Quality Sensor did not begin.");
-  //   } else {
-  //     Serial.println("ENS160 обнаружен");
+  if (!ens160.begin()) {
+      Serial.println("Air Quality Sensor did not begin.");
+    } else {
+      Serial.println("ENS160 detected");
 
-  // }
+  }
 
-  // if (humiditySensor.begin() == false)  {
-  //   Serial.println("AHT20 not detected. Please check wiring. Freezing.");
-  // } else {
-  //   Serial.println("AHT21 обнаружен");
-  // }
+  if (!aht.begin()) {
+    Serial.println("AHT21 not detected. Please check wiring!.");
+  } else {
+    Serial.println("AHT21 detected");
+  }
 
-  // if (myENS.setOperatingMode(SFE_ENS160_RESET))
-  //   Serial.println("Ready.");
+  Serial.println(ens160.available() ? "done." : "failed!");
+  if (ens160.available()) {
+    // Print ENS160 versions
+    Serial.print("\tRev: "); Serial.print(ens160.getMajorRev());
+    Serial.print("."); Serial.print(ens160.getMinorRev());
+    Serial.print("."); Serial.println(ens160.getBuild());
+  
+    Serial.print("\tStandard mode ");
+    Serial.println(ens160.setMode(ENS160_OPMODE_STD) ? "done." : "failed!");
+  }
+
+
     
   // bme.setSampling(Adafruit_BME280::MODE_FORCED,     /* Operating Mode. */
   //                Adafruit_BME280::SAMPLING_X1,     /* Temp. oversampling */
@@ -1613,12 +1649,12 @@ void setup()
   // Создание мьютексов
   i2cMutex = xSemaphoreCreateMutex();
     if (i2cMutex == NULL) {
-    Serial.println("Не удалось создать мьютекс для i2c!");
+    Serial.println("Failed to create mutex for i2c!");
   }
 
   driverMutex = xSemaphoreCreateMutex();
     if (driverMutex == NULL) {
-    Serial.println("Не удалось создать мьютекс для driver!");
+    Serial.println("Failed to create mutex for nRF905!");
   }
 
   // Создание задач FreeRTOS
@@ -1626,7 +1662,7 @@ void setup()
   xTaskCreate(taskNRF905, "NRF905 Receiver", 4096, NULL, 4, &taskNRF905Handle);
   xTaskCreate(taskBMP280, "BMP280 Sensor", 2048, NULL, 3, &taskBMP280Handle);
   xTaskCreate(taskCO2Read, "CO2 read task", 2048, NULL, 2, &taskCO2ReadHandle);
-  // xTaskCreate(taskTVOCRead, "ENS160 read task", 4096, NULL, 1, &taskTVOCReadHandle);
+  xTaskCreate(taskTVOCRead, "ENS160 read task", 4096, NULL, 1, &taskTVOCReadHandle);
   xTaskCreate(taskGetTime, "Get NTP Time", 4096, NULL, 2, &taskGetTimeHandle);
   xTaskCreate(taskSendDataToInfluxDB, "InfluxDBTask", 10240, NULL, 4, &taskSendDataToInfluxDBHandle);
   xTaskCreatePinnedToCore(taskWebServer, "Web Server", 20480, NULL, 5, &taskWebServerHandle, 1);
