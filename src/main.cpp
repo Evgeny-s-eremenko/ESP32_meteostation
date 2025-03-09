@@ -118,6 +118,7 @@ void taskCO2Read(void *pvParameters);
 void taskGetTime(void *pvParameters);
 void taskNRF905(void *pvParameters);
 void taskBMP280(void *pvParameters);
+void taskTVOCRead(void *pvParameters);
 void taskSendDataToInfluxDB(void *pvParameters);
 //void taskSerialPrint(void *pvParameters);
 float calculateDewPoint(float temperature, float humidity);
@@ -173,6 +174,7 @@ void handleGraphData() {
   doc["forecast"] = forecast;
   doc["trend"] = trend;
   doc["CO2"] = ppm;
+  doc["TVOC"] = TVOC;
 
   String json;
   serializeJson(doc, json);
@@ -188,7 +190,8 @@ void handleGetTasksState() {
   stateJson += "\"BMP280\":" + String(isTaskActive(taskBMP280Handle) ? "true" : "false") + ",";
   stateJson += "\"InfluxDB\":" + String(isTaskActive(taskSendDataToInfluxDBHandle) ? "true" : "false") + ",";
   stateJson += "\"Forecaster\":" + String(isTaskActive(taskForecasterHandle) ? "true" : "false") + ",";
-  stateJson += "\"NTP\":" + String(isTaskActive(taskGetTimeHandle) ? "true" : "false");
+  stateJson += "\"NTP\":" + String(isTaskActive(taskGetTimeHandle) ? "true" : "false") + ",";
+  stateJson += "\"TVOC\":" + String(isTaskActive(taskTVOCReadHandle) ? "true" : "false");
   stateJson += "}";
 
   server.send(200, "application/json", stateJson);
@@ -203,7 +206,8 @@ void sendTaskStateUpdate() {
   stateJson += "\"BMP280\":" + String(isTaskActive(taskBMP280Handle) ? "true" : "false") + ",";
   stateJson += "\"InfluxDB\":" + String(isTaskActive(taskSendDataToInfluxDBHandle) ? "true" : "false") + ",";
   stateJson += "\"Forecaster\":" + String(isTaskActive(taskForecasterHandle) ? "true" : "false") + ",";
-  stateJson += "\"NTP\":" + String(isTaskActive(taskGetTimeHandle) ? "true" : "false");
+  stateJson += "\"NTP\":" + String(isTaskActive(taskGetTimeHandle) ? "true" : "false") + ",";
+  stateJson += "\"TVOC\":" + String(isTaskActive(taskTVOCReadHandle) ? "true" : "false");
   stateJson += "}";
 
   webSocket.broadcastTXT(stateJson);  // Отправляем обновлённые данные всем клиентам
@@ -584,7 +588,22 @@ void sendDataToInfluxDB()
 
     if (ppm != 0)
     {
-      influxDBLine += "CO2=" + String(ppm);
+      influxDBLine += "CO2=" + String(ppm) + ",";
+    }
+
+    if (TVOC != -1)
+    {
+      influxDBLine += "TVOC=" + String(TVOC) + ",";
+    }
+
+    if (AQI != 0)
+    {
+      influxDBLine += "AQI=" + String(AQI) + ",";
+    }
+
+    if (ECO2 != 0)
+    {
+      influxDBLine += "ECO2=" + String(ECO2);
     }
   String url = "http://" + String(influxDBHost) + ":" + String(influxDBPort) + "/write?db=" + String(influxDBDatabase);
 
@@ -879,6 +898,33 @@ void switchTaskNTP() {
   sendTaskStateUpdate(); // Отправляем обновление статуса
 }
 
+void switchTaskTVOCRead() {
+  if (isTaskActive(taskTVOCReadHandle)) {
+    // Если задача активна - останавливаем
+    vTaskSuspend(taskTVOCReadHandle);
+    TVOCReadRunning = false;
+    Serial.println("TVOC reading: stopped");
+  } else {
+    // Если задача неактивна - запускаем/возобновляем
+    if (taskTVOCReadHandle == NULL) {
+      xTaskCreate(
+        taskTVOCRead,
+        "ENS160 read task", 
+        4096,
+        NULL,
+        1,
+        &taskTVOCReadHandle
+      );
+      Serial.println("TVOC reading: created and running");
+    } else {
+      vTaskResume(taskTVOCReadHandle);
+      Serial.println("TVOC reading: resumed");
+    }
+    TVOCReadRunning = true;
+  }
+  sendTaskStateUpdate(); // Отправляем обновление статуса
+}
+
 void handleTaskControl() {
   if (!server.hasArg("task")) {
       server.send(400, "text/plain", "Bad Request: Missing task parameter");
@@ -903,6 +949,8 @@ void handleTaskControl() {
       switchTaskForecaster();
   } else if (task == "NTP") {
       switchTaskNTP();
+  } else if (task == "TVOC") {
+      switchTaskTVOCRead();
   } else {
       server.send(400, "text/plain", "Bad Request: Unknown task");
       return;
@@ -1107,15 +1155,15 @@ void sendPage1Data() {
   nextion.print(cmd);
   nextion.write(0xFF); nextion.write(0xFF); nextion.write(0xFF);
 
-  // t2: CO2
+  // t4: CO2
   cmd = "t4.txt=\"" + String(ppm) + " ppm\"";
   nextion.print(cmd);
   nextion.write(0xFF); nextion.write(0xFF); nextion.write(0xFF);
 
-  // // t2: CO2
-  // cmd = "t5.txt=\"" + String(TVOC) + " ppb\"";
-  // nextion.print(cmd);
-  // nextion.write(0xFF); nextion.write(0xFF); nextion.write(0xFF);
+  // t5: TVOC
+  cmd = "t5.txt=\"" + String(TVOC) + " ppb\"";
+  nextion.print(cmd);
+  nextion.write(0xFF); nextion.write(0xFF); nextion.write(0xFF);
 }
 
 // Функция синхронизации состояния кнопок Nextion
