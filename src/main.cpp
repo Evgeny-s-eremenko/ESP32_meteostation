@@ -596,12 +596,12 @@ void sendDataToInfluxDB()
       influxDBLine += "TVOC=" + String(TVOC) + ",";
     }
 
-    if (AQI != 0)
+    if (AQI != -1)
     {
       influxDBLine += "AQI=" + String(AQI) + ",";
     }
 
-    if (ECO2 != 0)
+    if (ECO2 != -1)
     {
       influxDBLine += "ECO2=" + String(ECO2);
     }
@@ -1517,6 +1517,7 @@ void taskTVOCRead(void *pvParameters) {
           Serial.println("Sensors not responce. Deleting taskTVOCRead...");
           taskTVOCReadHandle = NULL;
           TVOCReadRunning = false;
+          sendTaskStateUpdate();
           vTaskDelete(NULL);  // Удаляем текущую задачу
       }
 
