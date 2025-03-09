@@ -26,6 +26,7 @@ socket.onmessage = function (event) {
     updateButtonState("TaskInfluxDB", data.InfluxDB);
     updateButtonState("TaskForecaster", data.Forecaster);
     updateButtonState("TaskNTP", data.NTP);
+    updateButtonState("TaskTVOC", data.TVOC);
   } catch (error) {
     console.error("Ошибка парсинга JSON:", error);
   }
@@ -45,6 +46,7 @@ async function fetchTaskStates() {
     updateButtonState("TaskInfluxDB", data.InfluxDB);
     updateButtonState("TaskForecaster", data.Forecaster);
     updateButtonState("TaskNTP", data.NTP);
+    updateButtonState("TaskTVOC", data.TVOC);
   } catch (error) {
     console.error("Ошибка получения данных:", error);
   }
@@ -81,6 +83,7 @@ function toggleTask(task) {
   document.getElementById("btnTaskInfluxDB").addEventListener("click", () => toggleTask("InfluxDB"));
   document.getElementById("btnTaskForecaster").addEventListener("click", () => toggleTask("Forecaster"));
   document.getElementById("btnTaskNTP").addEventListener("click", () => toggleTask("NTP"));
+  document.getElementById("btnTaskTVOC").addEventListener("click", () => toggleTask("TVOC"));
 
 function loadSystemInfo() {
     fetch('/sysinfo')

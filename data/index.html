@@ -109,6 +109,15 @@
             height: 80px;
         }
 
+        #TVOCIcon {
+            position: absolute;
+            left: 20px;
+            top: 41%;
+            transform: translateY(-55%);
+            width: 43px;
+            height: 79px;
+        }
+
         #trendIcon {
             position: absolute;
             right: 20px;
@@ -275,11 +284,20 @@
                 <div class="progress-bar-fill" id="CO2Bar"></div>
             </div>
         </div>
+        <div class="pressure-widget">
+            <h2>TVOC</h2>
+            <img id="TVOCIcon" src="/TVOC.png" alt="TVOC Icon">
+            <div class="value" id="TVOC"></div>
+            <div class="label">Концентрация TVOC</div>
+            <div class="progress-bar">
+                <div class="progress-bar-fill" id="TVOCBar"></div>
+            </div>
+        </div>
         <button id="toggleGraphButton" class="widget">Показать/скрыть график</button>
         <div id="chartContainer" style="display: none;">
             <div class="grid-container">
                 <div class="grid-item">
-                    <iframe id="temperatureChart" src="http://62.33.134.164:3000/public-dashboards/8540a49c692f4ba7841a2228b102d203" alt="Graph" width="520" height="900" frameborder="0"></iframe>
+                    <iframe id="temperatureChart" alt="Graph" width="520" height="900" frameborder="0"></iframe>
                 </div>
             </div>
         </div>

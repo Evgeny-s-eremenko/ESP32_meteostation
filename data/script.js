@@ -1,3 +1,21 @@
+window.addEventListener('DOMContentLoaded', () => {
+    const iframe = document.getElementById('temperatureChart');
+    
+    // Определяем текущий хост
+    const currentHost = window.location.hostname;
+    let iframeSrc;
+
+    if (currentHost.startsWith("192.168.1.")) {
+      // Локальная сеть
+      iframeSrc = "http://REMOVED:3000/public-dashboards/8540a49c692f4ba7841a2228b102d203";
+    } else {
+      // Внешний доступ (домены или публичный IP)
+      iframeSrc = "http://62.33.134.164:3000/public-dashboards/8540a49c692f4ba7841a2228b102d203";
+    }
+
+    iframe.src = iframeSrc;
+  });
+
 function getColor(value, min, max) {
     const t = (value - min) / (max - min);
     // d3.interpolateRdYlBu выдаёт цвет при t=0 красный, t=1 синий,
@@ -78,7 +96,7 @@ function updateTrendIcon(trend) {
 
 function updateTable(data) {
     if (!data || data.temperature === undefined || data.humidity === undefined || 
-        data.dewPoint === undefined || data.pressure === undefined || data.homeTemp === undefined || data.homeHum === undefined || data.homeDP === undefined || data.CO2 === undefined) {
+        data.dewPoint === undefined || data.pressure === undefined || data.homeTemp === undefined || data.homeHum === undefined || data.homeDP === undefined || data.CO2 === undefined || data.TVOC === undefined) {
       console.warn("Некорректные данные для обновления таблицы");
       document.getElementById("temperature").textContent = "Данные отсутствуют";
       document.getElementById("humidity").textContent = "Данные отсутствуют";
@@ -88,6 +106,7 @@ function updateTable(data) {
       document.getElementById("homeHum").textContent = "Данные отсутствуют";
       document.getElementById("homeDP").textContent = "Данные отсутствуют";
       document.getElementById("CO2").textContent = "Данные отсутствуют";
+      document.getElementById("TVOC").textContent = "Данные отсутствуют";
       return;
     }
   
@@ -99,6 +118,7 @@ function updateTable(data) {
     document.getElementById("homeHum").textContent = data.homeHum.toFixed(2) + " %";
     document.getElementById("homeDP").textContent = data.homeDP.toFixed(2) + " °C";
     document.getElementById("CO2").textContent = data.CO2.toFixed(2) + " ppm";
+    document.getElementById("TVOC").textContent = data.TVOC.toFixed(2) + " ppb";
 
     // Обновляем индикаторы
     updateIndicator(data.temperature, -35, 35, 'temperatureBar'); // Температура на улице
@@ -109,6 +129,7 @@ function updateTable(data) {
     updateIndicator(data.homeDP, -20, 30, 'homeDPBar'); // Точка росы дома
     updateIndicator(data.pressure, 956, 1056, 'pressureBar'); // Давление
     updateIndicatorAirQuality(data.CO2, 400, 2000, 'CO2Bar');
+    updateIndicatorAirQuality(data.TVOC, 0, 2000, 'TVOCBar');
 
     // Обновляем иконку погоды
     updateWeatherIcon(data.forecast);
