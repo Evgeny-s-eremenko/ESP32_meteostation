@@ -902,11 +902,24 @@ void switchTaskTVOCRead() {
   if (isTaskActive(taskTVOCReadHandle)) {
     // Если задача активна - останавливаем
     vTaskSuspend(taskTVOCReadHandle);
+    xSemaphoreGive(i2cMutex);
     TVOCReadRunning = false;
     Serial.println("TVOC reading: stopped");
   } else {
     // Если задача неактивна - запускаем/возобновляем
     if (taskTVOCReadHandle == NULL) {
+      if (!ens160.begin()) {
+        Serial.println("Air Quality Sensor did not begin.");
+      } else {
+        Serial.println("ENS160 detected");
+  
+      }
+  
+      if (!aht.begin()) {
+        Serial.println("AHT21 not detected. Please check wiring!.");
+      } else {
+        Serial.println("AHT21 detected");
+    }
       xTaskCreate(
         taskTVOCRead,
         "ENS160 read task", 
@@ -1518,6 +1531,7 @@ void taskTVOCRead(void *pvParameters) {
           taskTVOCReadHandle = NULL;
           TVOCReadRunning = false;
           sendTaskStateUpdate();
+          xSemaphoreGive(i2cMutex);
           vTaskDelete(NULL);  // Удаляем текущую задачу
       }
 
@@ -1532,7 +1546,7 @@ void taskTVOCRead(void *pvParameters) {
           }
       }
 
-      vTaskDelay(1000 / portTICK_PERIOD_MS);  // Задержка 1 секунда между циклами
+      vTaskDelay(3000 / portTICK_PERIOD_MS);  // Задержка 1 секунда между циклами
   }
 }
 
