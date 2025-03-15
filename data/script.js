@@ -30,6 +30,12 @@ function getColorAirQuality(value, min, max) {
     return d3.interpolateRdYlGn(1 - t);
 }
 
+function getColorHumidity(value, min, max) {
+    let t = (value - min) / (max - min);
+    t = 0.5 + t * 0.5; // Масштабируем t в диапазон [0.5, 1]
+    return d3.interpolateRdYlBu(t);
+}
+
 function updateIndicator(value, min, max, elementId) {
     const progressBar = document.getElementById(elementId);
     if (!progressBar) {
@@ -50,6 +56,17 @@ function updateIndicatorAirQuality(value, min, max, elementId) {
     const percentage = ((value - min) / (max - min)) * 100;
     progressBar.style.width = `${percentage}%`;
     progressBar.style.backgroundColor = getColorAirQuality(value, min, max);
+}
+
+function updateIndicatorHumidity(value, min, max, elementId) {
+    const progressBar = document.getElementById(elementId);
+    if (!progressBar) {
+      console.warn(`Элемент с ID ${elementId} не найден.`);
+      return;
+    }
+    const percentage = ((value - min) / (max - min)) * 100;
+    progressBar.style.width = `${percentage}%`;
+    progressBar.style.backgroundColor = getColorHumidity(value, min, max);
 }
 
 function updateWeatherIcon(forecast) {
@@ -123,8 +140,8 @@ function updateTable(data) {
     // Обновляем индикаторы
     updateIndicator(data.temperature, -35, 35, 'temperatureBar'); // Температура на улице
     updateIndicator(data.homeTemp, 10, 35, 'homeTempBar'); // Температура дома
-    updateIndicator(data.humidity, 0, 100, 'humidityBar'); // Влажность на улице
-    updateIndicator(data.homeHum, 0, 100, 'homeHumBar'); // Влажность дома
+    updateIndicatorHumidity(data.humidity, 0, 100, 'humidityBar'); // Влажность на улице
+    updateIndicatorHumidity(data.homeHum, 0, 100, 'homeHumBar'); // Влажность дома
     updateIndicator(data.dewPoint, -35, 30, 'dewPointBar'); // Точка росы на улице
     updateIndicator(data.homeDP, -20, 30, 'homeDPBar'); // Точка росы дома
     updateIndicator(data.pressure, 956, 1056, 'pressureBar'); // Давление
