@@ -13,7 +13,7 @@ document.getElementById("RestartButton").addEventListener("click", function(e) {
       .catch(error => console.error("Error:", error));
 });
 
-const socket = new WebSocket("ws://" + location.host + ":81");
+const socket = new WebSocket("ws://" + location.hostname + "/ws");
 
 socket.onmessage = function (event) {
   try {
