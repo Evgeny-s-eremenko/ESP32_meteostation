@@ -11,6 +11,7 @@
 #include <HTTPClient.h>
 #include <time.h>
 #include <Forecaster.h>
+#include <sunset.h>
 #include <ESPAsyncWebServer.h>
 #include <AsyncTCP.h>
 
@@ -81,6 +82,12 @@ bool isTaskActive(TaskHandle_t taskHandle) {
 
 // --------------------------------- Объекты ---------------------------------
 
+// ------------------------------ Координаты ---------------------------------
+
+double lat = 50.5302;  // Москва, например
+double lon = 137.0044;
+int tzOffset = 10; // Часовой пояс (Москва UTC+3)
+
 // ---------------------- Определение пинов serial2 --------------------------
 HardwareSerial nextion(2); // Используем Serial2 для связи с дисплеем
 #define RX2 16  // RX пин ESP32
@@ -100,7 +107,9 @@ AHT20 aht20;                                  // Датчик компенсац
 RH_NRF905 driver(NRF905_CE, NRF905_TX_EN, NRF905_CS); // Радиомодуль nRF905
 AsyncWebServer server(80);      // Асинхронный HTTP сервер
 AsyncWebSocket webSocket("/ws"); // Асинхронный WebSocket сервер
+AsyncWebSocket webSocket1("/ws1");
 Forecaster cond;
+SunSet sun;
 
 
 // -------------------------- Объявления функций (прототипы) --------------------------
@@ -121,7 +130,6 @@ void taskNRF905(void *pvParameters);
 void taskBMP280(void *pvParameters);
 void taskTVOCRead(void *pvParameters);
 void taskSendDataToInfluxDB(void *pvParameters);
-//void taskSerialPrint(void *pvParameters);
 float calculateDewPoint(float temperature, float humidity);
 
 // --------------------------- Глобальные переменные ---------------------------
@@ -140,6 +148,8 @@ volatile int TVOC = 0;
 volatile int AQI = 1;
 volatile int ECO2 = 400;
 volatile uint32_t i2cResetCount = 0;
+double sunriseTime;
+double sunsetTime;
 
 // Переменная для хранения текущей страницы Nextion
 String currentPage = "page0";
@@ -168,7 +178,6 @@ void setupFileSystem() {
       Serial.println("Failed to initialize LittleFS");
   }
 }
-
 
 // ---------------------------- Обработчики HTTP запросов -----------------------------
 
@@ -232,6 +241,20 @@ void sendTaskStateUpdate() {
   stateJson += "}";
 
   webSocket.textAll(stateJson); // Асинхронная отправка данных всем клиентам
+}
+
+void sendTimeData() {
+  if (webSocket1.count() > 0) {  // Проверяем, есть ли клиенты
+      StaticJsonDocument<256> json;
+      json["nowTime"] = time(nullptr);  // Функция получения текущего времени
+      json["sunriseTime"] = sunriseTime * 60; // Перевод из минут в секунды
+      json["sunsetTime"] = sunsetTime * 60;
+
+      String jsonString;
+      serializeJson(json, jsonString);
+      Serial.println("Отправка JSON: " + jsonString);
+      webSocket1.textAll(jsonString);
+  }
 }
 
 
@@ -317,11 +340,7 @@ void handleUpdateEnd(AsyncWebServerRequest *request) {
 
 void handleAdmin(AsyncWebServerRequest *request) {
   if (!isAuthenticated(request)) return;
-  if (LittleFS.exists("/admin.html")) {
-      request->send(LittleFS, "/admin.html", "text/html");
-  } else {
-      request->send(404, "text/plain", "admin.html not found");
-  }
+  request->send(LittleFS, "/admin.html", "text/html");
 }
 
 void handleAbout(AsyncWebServerRequest *request) {
@@ -416,111 +435,77 @@ void handleNRFReset(AsyncWebServerRequest *request) {
   request->send(200, "text/plain", "nRF905 has been reset.");
 }
 
-String formatTime(int value) {
-  return (value < 10 ? "0" : "") + String(value);
+std::string formatTime(int value) {
+  char buffer[3]; // "00" + null terminator
+  snprintf(buffer, sizeof(buffer), "%02d", value);
+  return std::string(buffer);
 }
 
-String getSystemInfo() {
-  String info = "";
-  
-  // Время работы в секундах (uptime)
+void getSystemInfo(char *buffer, size_t len) {
   unsigned long uptime = millis() / 1000;
   int days = uptime / 86400;
   int hours = (uptime % 86400) / 3600;
   int minutes = (uptime % 3600) / 60;
   int seconds = uptime % 60;
 
-  // Формируем строку времени
-  String uptimeStr = "";
-  if (days > 0) uptimeStr += String(days) + "d ";
-  uptimeStr += formatTime(hours) + "h " + formatTime(minutes) + "m " + formatTime(seconds) + "s\n";
+  char uptimeStr[20];
+  snprintf(uptimeStr, sizeof(uptimeStr), "%dd %02dh %02dm %02ds", days, hours, minutes, seconds);
 
-  info += "Uptime: " + uptimeStr;
-
-  info += "Chip model: " + String(ESP.getChipModel()) + " \n";
-
-  info += "Chip rev.: " + String(ESP.getChipRevision()) + " \n";
-  
-  // WiFi RSSI
-  info += "WiFi RSSI: " + String(WiFi.RSSI()) + " dBm\n";
-
-  // IP address
-  info += "IP address: " + String(WiFi.localIP().toString()) + " \n";
-  
-  // Свободная heap-память
-  info += "Free Heap: " + String(ESP.getFreeHeap()) + " bytes\n";
-  
-  // Свободный объем стека для текущей задачи
-  info += "WebServer task free stack: " + String(uxTaskGetStackHighWaterMark(NULL)) + " bytes\n";
-
-  info += "InfluxDB task free stack: " + String(uxTaskGetStackHighWaterMark(taskSendDataToInfluxDBHandle)) + " bytes\n";
-  
-  return info;
+  snprintf(buffer, len,
+           "Uptime: %s\nChip model: %s\nChip rev.: %d\nWiFi RSSI: %d dBm\n"
+           "IP address: %s\nFree Heap: %d bytes\nWebServer task free stack: %d bytes\n"
+           "InfluxDB task free stack: %d bytes\n",
+           uptimeStr, ESP.getChipModel(), ESP.getChipRevision(), WiFi.RSSI(),
+           WiFi.localIP().toString().c_str(), ESP.getFreeHeap(),
+           uxTaskGetStackHighWaterMark(NULL),
+           uxTaskGetStackHighWaterMark(taskSendDataToInfluxDBHandle));
 }
 
 
 // Функция получения статуса датчика BME280 по I2C
-String getBME280Status() {
-  String status = "";
-  // Пытаемся получить доступ к шине I2C
+const char *modeToString(uint8_t mode) {
+  switch (mode) {
+    case 0x00: return "DEEP_SLEEP";
+    case 0x01: return "IDLE";
+    case 0x02: return "STANDARD";
+    case 0xF0: return "RESET";
+    default:   return "UNKNOWN";
+  }
+}
+
+void getBME280Status(char *buffer, size_t len) {
+  size_t offset = 0;
+  
   if (xSemaphoreTake(i2cMutex, 1000 / portTICK_PERIOD_MS) == pdTRUE) {
-    // Проверка наличия датчика BME280
+    // Проверка BME280
     if (!bme.begin(0x76)) {
-      status = "BME280: Not Found\n";
+      offset += snprintf(buffer + offset, len - offset, "BME280: Not Found\n");
     } else {
-      status = "BME280: Found\n";
-      // Выводим показания с датчика
-      status += "Temp: " + String(bme.readTemperature(), 2) + " °C\n";
-      status += "Humidity: " + String(bme.readHumidity(), 2) + " %\n";
-      status += "Pressure: " + String(bme.readPressure() / 100.0F, 2) + " hPa\n";
+      offset += snprintf(buffer + offset, len - offset, "BME280: Found\n");
+      offset += snprintf(buffer + offset, len - offset, "Temp: %.2f °C\n", bme.readTemperature());
+      offset += snprintf(buffer + offset, len - offset, "Humidity: %.2f %%\n", bme.readHumidity());
+      offset += snprintf(buffer + offset, len - offset, "Pressure: %.2f hPa\n", bme.readPressure() / 100.0F);
     }
     
-    // Проверка наличия датчика ENS160
+    // Проверка ENS160
     if (!ens160.begin()) {
-      status += "ENS160: Not Found.\n";
+      offset += snprintf(buffer + offset, len - offset, "ENS160: Not Found\n");
     } else {
-      status += "ENS160: Found\n";
-      // Преобразуем числовой режим в строку
-      uint8_t mode = ens160.getOperatingMode();
-      switch (mode) {
-        case 0x00:
-          status += "Mode: DEEP_SLEEP\n";
-          break;
-        case 0x01:
-          status += "Mode: IDLE\n";
-          break;
-        case 0x02:
-          status += "Mode: STANDARD\n";
-          break;
-        case 0xF0:
-          status += "Mode: RESET\n";
-          break;
-        default:
-          status += "Mode: UNKNOWN\n";
-          break;
-      }
-      // Выводим состояние ошибки
-      uint8_t err = ens160.getOperationError();
-      if (err == 1) {
-        status += "Status: Error\n";
-      } else if (err == 0) {
-        status += "Status: OK\n";
-      } else {
-        status += "Status: Unknown\n";
-      }
-      // Счетчик сброса шины
-      status += "I2C Reset Count: " + String(i2cResetCount) + "\n";
+      offset += snprintf(buffer + offset, len - offset, "ENS160: Found\n");
+      offset += snprintf(buffer + offset, len - offset, "Mode: %s\n", modeToString(ens160.getOperatingMode()));
+      offset += snprintf(buffer + offset, len - offset, "Status: %s\n", ens160.getOperationError() ? "Error" : "OK");
+      offset += snprintf(buffer + offset, len - offset, "I2C Reset Count: %d\n", i2cResetCount);
     }
+    
     xSemaphoreGive(i2cMutex);
   } else {
-    // Если не удалось захватить мьютекс
-    status = "Failed to acquire i2cMutex! From task - " + String(pcTaskGetTaskName(NULL)) + "\n";
+    snprintf(buffer, len, "Failed to acquire i2cMutex! From task - %s\n", pcTaskGetTaskName(NULL));
     Serial.print("Failed to acquire i2cMutex! From task - ");
     Serial.println(pcTaskGetTaskName(NULL));
     resetI2CBus();
   }
-  return status;
 }
+
 
 String getNRF905Status() {
     String status = "";
@@ -576,13 +561,15 @@ RH_NRF905::TransmitPower getTransmitPowerFromString(const String &powerStr) {
 }
 
 void handleSysInfo(AsyncWebServerRequest *request) {
-  String info = getSystemInfo();
+  static char info[256];  // Размер буфера нужно подобрать под ваши данные
+  getSystemInfo(info, sizeof(info));
   request->send(200, "text/plain", info);
 }
 
 void handleBMEInfo(AsyncWebServerRequest *request) {
-  String status = getBME280Status();
-  request->send(200, "text/plain", status);
+  static char statusBuffer[256];  // Буфер для ответа
+  getBME280Status(statusBuffer, sizeof(statusBuffer));
+  request->send_P(200, "text/plain", statusBuffer);
 }
 
 void handlenRFInfo(AsyncWebServerRequest *request) {
@@ -746,6 +733,23 @@ void onWsEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventTyp
   }
 }
 
+void onWsEvent1(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type,
+                void *arg, uint8_t *data, size_t len)
+{
+  if (type == WS_EVT_CONNECT)
+  {
+    Serial.println("Client connected to /ws1");
+  }
+  else if (type == WS_EVT_DATA)
+  {
+    String message = (char *)data;
+    if (message == "getTime")
+    {
+      sendTimeData();
+    }
+  }
+}
+
 // ----------------------- Функции запуска и остановки задач -------------
 void nextionWakeUP()  {
   nextion.print("sleep=0");
@@ -809,9 +813,9 @@ void switchTaskInfluxDB() {
       xTaskCreate(
         taskSendDataToInfluxDB,
         "InfluxDBTask", 
-        10240,
+        4096,
         NULL,
-        4,
+        6,
         &taskSendDataToInfluxDBHandle
       );
       Serial.println("Отправка в базу данных: created and running");
@@ -840,7 +844,7 @@ void switchTaskCO2Read() {
         "CO2 read task", 
         2048,
         NULL,
-        2,
+        3,
         &taskCO2ReadHandle
       );
       Serial.println("Чтение с датчика CO2: created and running");
@@ -867,7 +871,7 @@ void switchTaskNRF905() {
         "NRF905 Receiver", 
         4096,
         NULL,
-        4,
+        5,
         &taskNRF905Handle
       );
       Serial.println("Прием с nRF905: created and running");
@@ -924,7 +928,7 @@ void switchTaskBMP280() {
         "BMP280 Sensor", 
         2048,
         NULL,
-        3,
+        4,
         &taskBMP280Handle
       );
       Serial.println("Чтение с BME280: created and running");
@@ -1017,7 +1021,7 @@ void switchTaskTVOCRead() {
         "ENS160 read task", 
         4096,
         NULL,
-        1,
+        2,
         &taskTVOCReadHandle
       );
       Serial.println("TVOC reading: created and running");
@@ -1150,17 +1154,38 @@ void taskBMP280(void *pvParameters)
   }
 }
 
-void taskGetTime(void *pvParameters) {
+void taskGetTime(void *pvParameters)
+{
+  static int currentDay = 32;
   struct tm timeinfo;
-  for (;;) {  // Бесконечный цикл в задаче
-    if (getLocalTime(&timeinfo)) {
-      int currentMonth = timeinfo.tm_mon + 1;  // tm_mon возвращает месяц от 0 до 11
-      //Serial.printf("Текущий месяц: %d\n", currentMonth);
-    } else {
+
+  for (;;)
+  { // Бесконечный цикл в задаче
+    if (getLocalTime(&timeinfo))
+    {
+      if (currentDay != timeinfo.tm_mday)
+      {
+        sun.setCurrentDate(timeinfo.tm_year + 1900, timeinfo.tm_mon + 1, timeinfo.tm_mday);
+        sun.setPosition(lat, lon, tzOffset);
+        sunriseTime = sun.calcSunrise();
+        sunsetTime = sun.calcSunset();
+        Serial.println(sunriseTime);
+        Serial.println(sunsetTime);
+        currentDay = timeinfo.tm_mday;
+      }
+
+      // Обновляем текущий месяц
+      month = timeinfo.tm_mon + 1;
+    }
+    else
+    {
       Serial.println("Failed to get time via NTP.");
     }
-    vTaskDelay(60000 / portTICK_PERIOD_MS);  // Проверка времени раз в минуту
+
+    vTaskDelay(pdMS_TO_TICKS(60000)); // Проверка времени раз в минуту
   }
+
+  configASSERT(NULL); // Если задача выйдет из цикла, это вызовет ошибку
 }
 
 void taskForecast(void *pvParameters) {
@@ -1647,34 +1672,6 @@ void taskTVOCRead(void *pvParameters)
 }
 
 
-// void taskSerialPrint(void *pvParameters)
-// {
-//   while (true)
-//   {
-//     Serial.print("Температура дома: ");
-//     Serial.print(homeTemp);
-//     Serial.println(" °C");
-//     Serial.print("Влажность дома: ");
-//     Serial.print(homeHum);
-//     Serial.println(" %");
-//     Serial.print("Точка росы дома: ");
-//     Serial.print(homeDP);
-//     Serial.println(" °C");
-//     Serial.print("Температура: ");
-//     Serial.print(temperature);
-//     Serial.println(" °C");
-//     Serial.print("Влажность: ");
-//     Serial.print(humidity);
-//     Serial.println(" %");
-//     Serial.print("Точка росы: ");
-//     Serial.print(dewPoint);
-//     Serial.println(" °C");
-//     Serial.print("Давление: ");
-//     Serial.print(pressure);
-//     Serial.println(" hPa");
-//     vTaskDelay(10000 / portTICK_PERIOD_MS);
-//   }
-// }
 
 // ----------------------------- Setup -----------------------------
 void setup()
@@ -1744,8 +1741,11 @@ void setup()
   server.on("/setNRF905", HTTP_ANY, handleSetNRF905);
   server.on("/nrfreset", HTTP_POST, handleNRFReset);  
   server.begin();
-  webSocket.onEvent(onWsEvent);
+ 
   server.addHandler(&webSocket);
+  server.addHandler(&webSocket1);
+  webSocket.onEvent(onWsEvent);
+  webSocket1.onEvent(onWsEvent1);
 
   webServerRunning = true;
   Serial.setDebugOutput(true);
@@ -1796,15 +1796,6 @@ void setup()
     }
 
 
-    
-  // bme.setSampling(Adafruit_BME280::MODE_FORCED,     /* Operating Mode. */
-  //                Adafruit_BME280::SAMPLING_X1,     /* Temp. oversampling */
-  //                Adafruit_BME280::SAMPLING_X8,    /* Pressure oversampling */
-  //                Adafruit_BME280::SAMPLING_X1,    /* Humidity oversampling */
-  //                Adafruit_BME280::FILTER_X8,      /* Filtering. */
-  //                Adafruit_BME280::STANDBY_MS_500); /* Standby time. */
-  // Serial.println("BMP280 in forced mode");
-
   // Настройка времени через NTP
   configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
 
@@ -1825,12 +1816,12 @@ void setup()
 
   // Создание задач FreeRTOS
 
-  xTaskCreate(taskNRF905, "NRF905 Receiver", 4096, NULL, 4, &taskNRF905Handle);
-  xTaskCreate(taskBMP280, "BMP280 Sensor", 2048, NULL, 3, &taskBMP280Handle);
-  xTaskCreate(taskCO2Read, "CO2 read task", 2048, NULL, 2, &taskCO2ReadHandle);
-  xTaskCreate(taskTVOCRead, "ENS160 read task", 4096, NULL, 1, &taskTVOCReadHandle);
+  xTaskCreate(taskNRF905, "NRF905 Receiver", 4096, NULL, 5, &taskNRF905Handle);
+  xTaskCreate(taskBMP280, "BMP280 Sensor", 2048, NULL, 4, &taskBMP280Handle);
+  xTaskCreate(taskCO2Read, "CO2 read task", 2048, NULL, 3, &taskCO2ReadHandle);
+  xTaskCreate(taskTVOCRead, "ENS160 read task", 4096, NULL, 2, &taskTVOCReadHandle);
   xTaskCreate(taskGetTime, "Get NTP Time", 4096, NULL, 2, &taskGetTimeHandle);
-  xTaskCreate(taskSendDataToInfluxDB, "InfluxDBTask", 10240, NULL, 4, &taskSendDataToInfluxDBHandle);
+  xTaskCreate(taskSendDataToInfluxDB, "InfluxDBTask", 4096, NULL, 6, &taskSendDataToInfluxDBHandle);
   xTaskCreate(taskForecast, "Forecast task", 2048, NULL, 1, &taskForecasterHandle);
   xTaskCreate(processNextionTask, "Nextion", 4096, NULL, 3, &processNextionTaskHandle);
   //xTaskCreate(taskSerialPrint, "Serial Print", 2048, NULL, 1, NULL);
