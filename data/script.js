@@ -32,7 +32,7 @@ function getColorAirQuality(value, min, max) {
 
 function getColorHumidity(value, min, max) {
     let t = (value - min) / (max - min);
-    t = 0.5 + t * 0.5; // Масштабируем t в диапазон [0.5, 1]
+    t = 0.3 + t * 0.3; // Масштабируем t в диапазон [0.5, 1]
     return d3.interpolateRdYlBu(t);
 }
 
@@ -112,20 +112,20 @@ function updateTrendIcon(trend) {
 }
 
 function updateTable(data) {
-    if (!data || data.temperature === undefined || data.humidity === undefined || 
-        data.dewPoint === undefined || data.pressure === undefined || data.homeTemp === undefined || data.homeHum === undefined || data.homeDP === undefined || data.CO2 === undefined || data.TVOC === undefined) {
-      console.warn("Некорректные данные для обновления таблицы");
-      document.getElementById("temperature").textContent = "Данные отсутствуют";
-      document.getElementById("humidity").textContent = "Данные отсутствуют";
-      document.getElementById("dewPoint").textContent = "Данные отсутствуют";
-      document.getElementById("pressure").textContent = "Данные отсутствуют";
-      document.getElementById("homeTemp").textContent = "Данные отсутствуют";
-      document.getElementById("homeHum").textContent = "Данные отсутствуют";
-      document.getElementById("homeDP").textContent = "Данные отсутствуют";
-      document.getElementById("CO2").textContent = "Данные отсутствуют";
-      document.getElementById("TVOC").textContent = "Данные отсутствуют";
-      return;
-    }
+    // if (!data || data.temperature === undefined || data.humidity === undefined || 
+    //     data.dewPoint === undefined || data.pressure === undefined || data.homeTemp === undefined || data.homeHum === undefined || data.homeDP === undefined || data.CO2 === undefined || data.TVOC === undefined) {
+    //   console.warn("Некорректные данные для обновления таблицы");
+    //   document.getElementById("temperature").textContent = "Данные отсутствуют";
+    //   document.getElementById("humidity").textContent = "Данные отсутствуют";
+    //   document.getElementById("dewPoint").textContent = "Данные отсутствуют";
+    //   document.getElementById("pressure").textContent = "Данные отсутствуют";
+    //   document.getElementById("homeTemp").textContent = "Данные отсутствуют";
+    //   document.getElementById("homeHum").textContent = "Данные отсутствуют";
+    //   document.getElementById("homeDP").textContent = "Данные отсутствуют";
+    //   document.getElementById("CO2").textContent = "Данные отсутствуют";
+    //   document.getElementById("TVOC").textContent = "Данные отсутствуют";
+    //   return;
+    // }
   
     document.getElementById("temperature").textContent = data.temperature.toFixed(2) + " °C";
     document.getElementById("humidity").textContent = data.humidity.toFixed(2) + " %";
@@ -162,7 +162,7 @@ function fetchDataAndUpdate() {
             return response.json();
         })
         .then(data => {
-            if (data && data.temperature && data.humidity && data.dewPoint && data.pressure && data.homeTemp && data.homeHum && data.homeDP && data.CO2) {
+            if (data && data.temperature && data.humidity && data.dewPoint && data.pressure && data.homeTemp && data.homeHum && data.homeDP && data.CO2 && data.TVOC) {
                 updateTable(data); // Обновляем только таблицу
             } else {
                 console.warn("Данные отсутствуют или некорректны.");
