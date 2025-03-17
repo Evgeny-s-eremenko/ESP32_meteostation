@@ -91,6 +91,7 @@ window.addEventListener('load', () => {
             if (socket.readyState === WebSocket.OPEN) {
                 socket.send("getTime"); // Запрос времени у ESP
             }
+            updateSunPosition();
         }, 2000);
     };
     setInterval(() => {
@@ -98,5 +99,5 @@ window.addEventListener('load', () => {
             socket.send("getTime"); // Запрос времени у ESP
         }
         updateSunPosition();
-    }, 60000);
+    }, 5000);
 });

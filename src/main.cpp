@@ -84,9 +84,9 @@ bool isTaskActive(TaskHandle_t taskHandle) {
 
 // ------------------------------ Координаты ---------------------------------
 
-double lat = 50.5302;  // Москва, например
+double lat = 50.5302;
 double lon = 137.0044;
-int tzOffset = 10; // Часовой пояс (Москва UTC+3)
+int tzOffset = 10; // Часовой пояс (UTC+10)
 
 // ---------------------- Определение пинов serial2 --------------------------
 HardwareSerial nextion(2); // Используем Serial2 для связи с дисплеем
@@ -252,7 +252,6 @@ void sendTimeData() {
 
       String jsonString;
       serializeJson(json, jsonString);
-      Serial.println("Отправка JSON: " + jsonString);
       webSocket1.textAll(jsonString);
   }
 }
@@ -750,56 +749,29 @@ void onWsEvent1(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventTy
   }
 }
 
+// ----------------------------- nextion finalizer -----------------------
+
+void nextionFin() {
+  nextion.write(0xFF);
+  nextion.write(0xFF);
+  nextion.write(0xFF);
+}
+
 // ----------------------- Функции запуска и остановки задач -------------
 void nextionWakeUP()  {
   nextion.print("sleep=0");
-  nextion.write(0xFF);
-  nextion.write(0xFF);
-  nextion.write(0xFF);
+  nextionFin();
 }
 
 void nextionSleep()  {
   nextion.print("sleep=1");
-  nextion.write(0xFF);
-  nextion.write(0xFF);
-  nextion.write(0xFF);
+  nextionFin();
 }
 
 void nextionRestart() {
   nextion.print("rest");
-  nextion.write(0xFF);
-  nextion.write(0xFF);
-  nextion.write(0xFF);
+  nextionFin();
 }
-
-// void switchTaskWebServer() {
-//   if (isTaskActive(taskWebServerHandle)) {
-//     // Если задача активна - останавливаем
-//     vTaskSuspend(taskWebServerHandle);
-//     server.stop();
-//     webServerRunning = false;
-//     Serial.println("WebServer: stopped");
-//   } else {
-//     // Если задача неактивна - запускаем/возобновляем
-//     if (taskWebServerHandle == NULL) {
-//       xTaskCreate(
-//         taskWebServer,
-//         "WebServerTask", 
-//         20480,
-//         NULL,
-//         5,
-//         &taskWebServerHandle
-//       );
-//       Serial.println("WebServer: created and running");
-//     } else {
-//       vTaskResume(taskWebServerHandle);
-//       Serial.println("WebServer: resumed");
-//     }
-//     server.begin();
-//     webServerRunning = true;
-//   }
-//   sendTaskStateUpdate(); // Отправляем обновление статуса
-// }
 
 void switchTaskInfluxDB() {
   if (isTaskActive(taskSendDataToInfluxDBHandle)) {
@@ -1074,16 +1046,16 @@ void handleTaskControl(AsyncWebServerRequest *request) {
 
 // --------------------------- Задачи FreeRTOS ---------------------------
 
-void taskSendDataToInfluxDB(void *pvParameters) {
-    while (1) {
-        // Здесь больше не нужно получать данные, они уже в глобальных переменных
+void taskSendDataToInfluxDB(void *pvParameters)
+{
+  while (1)
+  {
 
-        sendDataToInfluxDB(); // Вызываем функцию без аргументов
+    sendDataToInfluxDB();
 
-        vTaskDelay(36000 / portTICK_PERIOD_MS); // Отправка данных раз в минуту
-    }
+    vTaskDelay(36000 / portTICK_PERIOD_MS); // Отправка данных раз в минуту
+  }
 }
-
 
 void taskNRF905(void *pvParameters)
 {
@@ -1169,8 +1141,6 @@ void taskGetTime(void *pvParameters)
         sun.setPosition(lat, lon, tzOffset);
         sunriseTime = sun.calcSunrise();
         sunsetTime = sun.calcSunset();
-        Serial.println(sunriseTime);
-        Serial.println(sunsetTime);
         currentDay = timeinfo.tm_mday;
       }
 
@@ -1220,22 +1190,22 @@ void sendPage0Data() {
   // t0: humidity
   cmd = "t0.txt=\"" + String(humidity) + "%\"";
   nextion.print(cmd);
-  nextion.write(0xFF); nextion.write(0xFF); nextion.write(0xFF);
+  nextionFin();
   
   // t1: temperature
   cmd = "t1.txt=\"" + String(temperature) + "°C\"";
   nextion.print(cmd);
-  nextion.write(0xFF); nextion.write(0xFF); nextion.write(0xFF);
+  nextionFin();
   
   // t3: dewpoint
   cmd = "t3.txt=\"" + String(dewPoint) + "°C\"";
   nextion.print(cmd);
-  nextion.write(0xFF); nextion.write(0xFF); nextion.write(0xFF);
+  nextionFin();
   
   // t2: pressure
   cmd = "t2.txt=\"" + String(pressure) + " hPa\"";
   nextion.print(cmd);
-  nextion.write(0xFF); nextion.write(0xFF); nextion.write(0xFF);
+  nextionFin();
   
   // p0: картинка, определяем id по значению forecast
   int pic;
@@ -1250,7 +1220,7 @@ void sendPage0Data() {
   
   cmd = "p0.pic=" + String(pic);
   nextion.print(cmd);
-  nextion.write(0xFF); nextion.write(0xFF); nextion.write(0xFF);
+  nextionFin();
 }
 
 // Функция отправки данных на экран для page1
@@ -1260,32 +1230,32 @@ void sendPage1Data() {
   // t0: homeHum
   cmd = "t0.txt=\"" + String(homeHum) + "%\"";
   nextion.print(cmd);
-  nextion.write(0xFF); nextion.write(0xFF); nextion.write(0xFF);
+  nextionFin();
   
   // t1: homeTemp
   cmd = "t1.txt=\"" + String(homeTemp) + "°C\"";
   nextion.print(cmd);
-  nextion.write(0xFF); nextion.write(0xFF); nextion.write(0xFF);
+  nextionFin();
   
   // t3: homeDP
   cmd = "t3.txt=\"" + String(homeDP) + "°C\"";
   nextion.print(cmd);
-  nextion.write(0xFF); nextion.write(0xFF); nextion.write(0xFF);
+  nextionFin();
   
   // t2: pressure (используем ту же переменную)
   cmd = "t2.txt=\"" + String(pressure) + " hPa\"";
   nextion.print(cmd);
-  nextion.write(0xFF); nextion.write(0xFF); nextion.write(0xFF);
+  nextionFin();
 
   // t4: CO2
   cmd = "t4.txt=\"" + String(ppm) + " ppm\"";
   nextion.print(cmd);
-  nextion.write(0xFF); nextion.write(0xFF); nextion.write(0xFF);
+  nextionFin();
 
   // t5: TVOC
   cmd = "t5.txt=\"" + String(TVOC) + " ppb\"";
   nextion.print(cmd);
-  nextion.write(0xFF); nextion.write(0xFF); nextion.write(0xFF);
+  nextionFin();
 }
 
 // Функция синхронизации состояния кнопок Nextion
@@ -1295,9 +1265,7 @@ void syncWebServerButtonState() {
   } else {
     nextion.print("bt0.val=0");
   }
-  nextion.write(0xFF);
-  nextion.write(0xFF);
-  nextion.write(0xFF);
+  nextionFin();
 }
 
 void syncnRF905ButtonState() {
@@ -1306,9 +1274,7 @@ void syncnRF905ButtonState() {
   } else {
     nextion.print("bt1.val=0");
   }
-  nextion.write(0xFF);
-  nextion.write(0xFF);
-  nextion.write(0xFF);
+  nextionFin();
 }
 
 void syncCO2ButtonState() {
@@ -1317,9 +1283,7 @@ void syncCO2ButtonState() {
   } else {
     nextion.print("bt2.val=0");
   }
-  nextion.write(0xFF);
-  nextion.write(0xFF);
-  nextion.write(0xFF);
+  nextionFin();
 }
 
 void syncNextionButtonState() {
@@ -1328,9 +1292,7 @@ void syncNextionButtonState() {
   } else {
     nextion.print("bt3.val=0");
   }
-  nextion.write(0xFF);
-  nextion.write(0xFF);
-  nextion.write(0xFF);
+  nextionFin();
 }
 
 void syncBMP280ButtonState() {
@@ -1339,9 +1301,7 @@ void syncBMP280ButtonState() {
   } else {
     nextion.print("bt4.val=0");
   }
-  nextion.write(0xFF);
-  nextion.write(0xFF);
-  nextion.write(0xFF);
+  nextionFin();
 }
 
 void syncInfluxDBButtonState() {
@@ -1350,9 +1310,7 @@ void syncInfluxDBButtonState() {
   } else {
     nextion.print("bt5.val=0");
   }
-  nextion.write(0xFF);
-  nextion.write(0xFF);
-  nextion.write(0xFF);
+  nextionFin();
 }
 
 void syncForecastButtonState() {
@@ -1361,9 +1319,7 @@ void syncForecastButtonState() {
   } else {
     nextion.print("bt6.val=0");
   }
-  nextion.write(0xFF);
-  nextion.write(0xFF);
-  nextion.write(0xFF);
+  nextionFin();
 }
 
 void syncNTPButtonState() {
@@ -1372,9 +1328,7 @@ void syncNTPButtonState() {
   } else {
     nextion.print("bt7.val=0");
   }
-  nextion.write(0xFF);
-  nextion.write(0xFF);
-  nextion.write(0xFF);
+  nextionFin();
 }
 
 // Отправка данных о состоянии кнопок на Nextion
@@ -1433,13 +1387,6 @@ void processNextionMessageBinary(const uint8_t* msg, size_t len) {
       Serial.println("Button pressed: b4");
       ESP.restart();
     }
-    // else if (compID == 0x06) {
-    //   Serial.println("Button pressed: bt0");
-    //   // Переключаем веб-сервер
-    //   switchTaskWebServer();
-    //   // Синхронизируем состояние dual-state кнопки
-    //   syncWebServerButtonState();
-    // }
     else if (compID == 0x07) {
       Serial.println("Button pressed: bt1");
       // Переключаем веб-сервер
@@ -1559,7 +1506,7 @@ void taskCO2Read(void *pvParameters) {
 
       if (response[8] == checksum) {
         ppm = (256 * response[2]) + response[3];
-        Serial.printf("CO2: %d ppm\n", ppm);
+        //Serial.printf("CO2: %d ppm\n", ppm);
         errorCount = 0; // Сброс ошибок при успехе
       } else {
         errorCount++;
@@ -1606,7 +1553,7 @@ void taskTVOCRead(void *pvParameters)
                 AQI = ens160.getAQI();
                 TVOC = ens160.getTVOC();
                 ECO2 = ens160.getECO2();
-                Serial.printf("AQI: %d\tTVOC: %d ppb\tCO2: %d ppm\n", AQI, TVOC, ECO2);
+                //Serial.printf("AQI: %d\tTVOC: %d ppb\tCO2: %d ppm\n", AQI, TVOC, ECO2);
                 ens160ErrorCount = 0;
             }
             else
@@ -1655,9 +1602,10 @@ void taskTVOCRead(void *pvParameters)
             {
                 ens160.setTempCompensationCelsius(tempAHT);
                 ens160.setRHCompensationFloat(rH);
-                Serial.printf("Setting temperature and humidity calibration values:\nTemperature: %.2f °C, Humidity: %.2f %%\n", tempAHT, rH);
+                //Serial.printf("Setting temperature and humidity calibration values:\nTemperature: %.2f °C, Humidity: %.2f %%\n", tempAHT, rH);
                 xSemaphoreGive(i2cMutex);
                 lastCompensationTime = millis();
+                vTaskDelay(2000 / portTICK_PERIOD_MS);
             }
             else
             {
@@ -1824,7 +1772,6 @@ void setup()
   xTaskCreate(taskSendDataToInfluxDB, "InfluxDBTask", 4096, NULL, 6, &taskSendDataToInfluxDBHandle);
   xTaskCreate(taskForecast, "Forecast task", 2048, NULL, 1, &taskForecasterHandle);
   xTaskCreate(processNextionTask, "Nextion", 4096, NULL, 3, &processNextionTaskHandle);
-  //xTaskCreate(taskSerialPrint, "Serial Print", 2048, NULL, 1, NULL);
 }
 
 // ----------------------------- Main loop -----------------------------
