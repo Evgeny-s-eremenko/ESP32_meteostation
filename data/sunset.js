@@ -3,6 +3,7 @@ const socket = new WebSocket("ws://" + location.hostname + "/ws1");
 let nowTime = 0;       // Текущее время (UNIX timestamp), по умолчанию 0
 let sunriseTime = 0;   // Время восхода (секунды с полуночи)
 let sunsetTime = 0;    // Время заката (секунды с полуночи)
+let dataInitialized = false;
 
 socket.onmessage = function (event) {
     try {
@@ -12,6 +13,7 @@ socket.onmessage = function (event) {
         if ("sunsetTime" in data) sunsetTime = data.sunsetTime;
 
         updateSunLabels();
+        dataInitialized = true;
         updateSunPosition();
     } catch (e) {
         console.error("Ошибка парсинга JSON:", e);
@@ -49,6 +51,7 @@ function updateCurrentDateTime() {
 
 // Движение солнца по дуге
 function updateSunPosition() {
+    if (!dataInitialized) return;
     const wrapper = document.getElementById('sunArcWrapper');
     const sunElem = document.getElementById('sun');
 
@@ -84,9 +87,12 @@ function updateSunPosition() {
 }
 window.addEventListener('load', () => {
     socket.onopen = () => {
-        socket.send("getTime");
+        setTimeout(() => {
+            if (socket.readyState === WebSocket.OPEN) {
+                socket.send("getTime"); // Запрос времени у ESP
+            }
+        }, 2000);
     };
-    updateSunPosition();
     setInterval(() => {
         if (socket.readyState === WebSocket.OPEN) {
             socket.send("getTime"); // Запрос времени у ESP
