@@ -156,7 +156,7 @@ window.addEventListener('load', () => {
     loadBMEInfo();
     loadNRF905Info();
     
-    // Обновляем информацию каждые 10 секунд (по необходимости)
+    // Обновляем информацию каждые 5 секунд (по необходимости)
     setInterval(() => {
         loadSystemInfo();
         loadBMEInfo();

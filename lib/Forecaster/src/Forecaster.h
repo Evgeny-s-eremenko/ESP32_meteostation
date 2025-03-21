@@ -33,10 +33,12 @@ class Forecaster {
 public:
     void begin() {
         if (nvs_flash_init() != ESP_OK) {
-            Serial.println("Ошибка инициализации NVS");
+            //Serial.println("Ошибка инициализации NVS");
+            ESP_LOGE("NVS", "Failed to initialize NVS");
         }
         if (nvs_open("storage", NVS_READWRITE, &handle) != ESP_OK) {
-            Serial.println("Ошибка открытия NVS");
+            //Serial.println("Ошибка открытия NVS");
+            ESP_LOGE("NVS", "Failed to open NVS");
         } else {
             loadData();
         }
@@ -123,9 +125,12 @@ private:
 
         if (nvs_set_str(handle, "Parr", jsonString.c_str()) == ESP_OK) {
             nvs_commit(handle);
-            Serial.println("Данные сохранены в NVS.");
+            //Serial.println("Данные сохранены в NVS.");
+            ESP_LOGI("NVS", "Data saved to NVS");
+
         } else {
-            Serial.println("Ошибка сохранения данных.");
+            //Serial.println("Ошибка сохранения данных.");
+            ESP_LOGE("NVS", "Saving data error");
         }
     }
 
@@ -144,11 +149,13 @@ private:
                 delta = doc["delta"];
 
                 start = true;
-                Serial.println("Данные загружены из NVS.");
+                //Serial.println("Данные загружены из NVS.");
+                ESP_LOGI("NVS", "Data loaded from NVS");
             }
             delete[] jsonString;
         } else {
-            Serial.println("Нет сохранённых данных.");
+            //Serial.println("Нет сохранённых данных.");
+            ESP_LOGW("NVS", "No saved data in NVS");
         }
     }
 };
