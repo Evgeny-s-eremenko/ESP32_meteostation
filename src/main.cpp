@@ -192,24 +192,25 @@ bool isAuthenticated(AsyncWebServerRequest *request) {
 
 
 void handleGraphData(AsyncWebServerRequest *request) {
-  DynamicJsonDocument doc(256);
+  StaticJsonDocument<256> doc;
+  
   doc["temperature"] = temperature;
   doc["humidity"] = humidity;
   doc["dewPoint"] = dewPoint;
   doc["pressure"] = pressure;
   doc["homeTemp"] = homeTemp;
   doc["homeHum"] = homeHum;
-  doc["dewPoint"] = dewPoint;
   doc["homeDP"] = homeDP;
   doc["forecast"] = forecast;
   doc["trend"] = trend;
   doc["CO2"] = ppm;
   doc["TVOC"] = TVOC;
 
-  String json;
-  serializeJson(doc, json);
-  request->send(200, "application/json", json);
+  AsyncResponseStream *response = request->beginResponseStream("application/json");
+  serializeJson(doc, *response);
+  request->send(response);
 }
+
 
 void handleGetTasksState(AsyncWebServerRequest *request) {
   String stateJson = "{";
@@ -506,41 +507,46 @@ void getBME280Status(char *buffer, size_t len) {
 }
 
 
-String getNRF905Status() {
-    String status = "";
-    uint8_t config[10];
-    
-    // 1. Чтение регистров. Возвращаемое значение — статусный регистр!
-    uint8_t status_reg = driver.spiBurstReadRegister(RH_NRF905_REG_W_CONFIG, config, 10);
-    
-    // 2. Вывод расшифрованного статуса
-    status += "Status Register: 0x" + String(status_reg, HEX) + "\n";
-    status += "Decoded Status:\n";
-    status += (status_reg & 0x20) ? "[DR] Data Ready\n" : "";
-    status += (status_reg & 0x80) ? "[AM] Address Match\n" : "";
-    status += (status_reg & 0x40) ? "[CRC_ERR] Error\n" : "[CRC_OK]\n";
+void getNRF905Status(char *buffer, size_t bufferSize) {
+  char temp[32];          
+  uint8_t config[10];
 
-    // 3. Вывод конфигурации (остается без изменений)
-    status += "Channel: " + String(config[0]) + "\n";
+  // Чтение регистров
+  uint8_t status_reg = driver.spiBurstReadRegister(RH_NRF905_REG_W_CONFIG, config, 10);
 
-    uint8_t band_bit = config[1] & RH_NRF905_CONFIG_1_HFREQ_PLL;  // Определяем, работает ли модуль в диапазоне 868/915 МГц
-    float freq = 422.4 + (config[0] / 10.0);                      // Рассчитываем базовую частоту для 433 МГц
-    if (band_bit) freq *= 2;                                      // Если band_bit = 1, умножаем на 2 для 868/915 МГц
+  // Заполнение строки статуса
+  int pos = snprintf(buffer, bufferSize, "Status Register: 0x%02X\nDecoded Status:\n", status_reg);
 
-    status += "Frequency: " + String(freq, 3) + " MHz\n";
+  if (status_reg & 0x20) pos += snprintf(buffer + pos, bufferSize - pos, "[DR] Data Ready\n");
+  if (status_reg & 0x80) pos += snprintf(buffer + pos, bufferSize - pos, "[AM] Address Match\n");
+  if (status_reg & 0x40) pos += snprintf(buffer + pos, bufferSize - pos, "[CRC_ERR] Error\n");
+  else pos += snprintf(buffer + pos, bufferSize - pos, "[CRC_OK]\n");
 
-    uint8_t pwr = (config[1] & RH_NRF905_CONFIG_1_PA_PWR) >> 2;
-    const char* pwr_str[] = {"-10 dBm", "-2 dBm", "+6 dBm", "+10 dBm"};
-    status += "TX Power: " + String(pwr_str[pwr]) + "\n";
+  // Конфигурация канала
+  pos += snprintf(buffer + pos, bufferSize - pos, "Channel: %d\n", config[0]);
 
-    status += "RAW Config: ";
-    for (int i = 0; i < 10; i++) {
-        status += String(config[i], HEX) + " ";
-    }
-    status += "\n";
+  // Частота
+  uint8_t band_bit = config[1] & RH_NRF905_CONFIG_1_HFREQ_PLL;
+  float freq = 422.4 + (config[0] / 10.0);
+  if (band_bit) freq *= 2;
 
-    return status;
+  pos += snprintf(buffer + pos, bufferSize - pos, "Frequency: %.3f MHz\n", freq);
+
+  // Мощность передачи
+  uint8_t pwr = (config[1] & RH_NRF905_CONFIG_1_PA_PWR) >> 2;
+  const char* pwr_str[] = {"-10 dBm", "-2 dBm", "+6 dBm", "+10 dBm"};
+  pos += snprintf(buffer + pos, bufferSize - pos, "TX Power: %s\n", pwr_str[pwr]);
+
+  // RAW Config
+  pos += snprintf(buffer + pos, bufferSize - pos, "RAW Config: ");
+  for (int i = 0; i < 10; i++) {
+      snprintf(temp, sizeof(temp), "%02X ", config[i]);
+      strncat(buffer, temp, bufferSize - strlen(buffer) - 1);
+  }
+  strncat(buffer, "\n", bufferSize - strlen(buffer) - 1);
 }
+
+
 
 RH_NRF905::TransmitPower getTransmitPowerFromString(const String &powerStr) {
   if (powerStr == "TransmitPowerm10dBm") {
@@ -573,9 +579,10 @@ void handleBMEInfo(AsyncWebServerRequest *request) {
 
 void handlenRFInfo(AsyncWebServerRequest *request) {
   if (xSemaphoreTake(driverMutex, portMAX_DELAY) == pdTRUE) {
-    String status = getNRF905Status();
-    request->send(200, "text/plain", status);
-  xSemaphoreGive(driverMutex);
+      static char status[256];  
+      getNRF905Status(status, sizeof(status));
+      request->send_P(200, "text/plain", status);
+      xSemaphoreGive(driverMutex);
   }
 }
 
