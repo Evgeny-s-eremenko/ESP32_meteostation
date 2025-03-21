@@ -14,6 +14,7 @@
 #include <sunset.h>
 #include <ESPAsyncWebServer.h>
 #include <AsyncTCP.h>
+#include <esp_log.h>
 
 
 
@@ -173,9 +174,16 @@ float calculatehomeDP(float homeTemp, float homeHum)
 }
 
 // Инициализация файловой системы
-void setupFileSystem() {
-  if (!LittleFS.begin()) {
-      Serial.println("Failed to initialize LittleFS");
+void setupFileSystem()
+{
+  if (!LittleFS.begin())
+  {
+    // Serial.println("Failed to initialize LittleFS");
+    ESP_LOGE("INIT", "Failed to initialize LittleFS");
+  }
+  else
+  {
+    ESP_LOGI("INIT", "LittleFS initialized");
   }
 }
 
@@ -281,16 +289,19 @@ void handleUpdateForm(AsyncWebServerRequest *request) {
 
 void handleUpdateUpload(AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final) {
   if (!isAuthenticated(request)) {
-      Serial.println("Authentication failed");
+      //Serial.println("Authentication failed");
+      ESP_LOGW("WEB", "Authentication failed");
       request->send(401, "text/plain", "Unauthorized");
       return;
   }
 
   if (index == 0) {
-      Serial.printf("Update started: %s\n", filename.c_str());
+      //Serial.printf("Update started: %s\n", filename.c_str());
+      ESP_LOGW("UPDATE", "Update started: %s\n", filename.c_str());
 
       if (filename.indexOf("littlefs") >= 0) {
-          Serial.println("Updating filesystem");
+          //Serial.println("Updating filesystem");
+          ESP_LOGW("UPDATE", "Updating filesystem");
           if (!Update.begin(UPDATE_SIZE_UNKNOWN, U_SPIFFS)) {
               Update.printError(Serial);
               request->send(500, "text/plain", "Failed to start filesystem update");
@@ -298,6 +309,7 @@ void handleUpdateUpload(AsyncWebServerRequest *request, String filename, size_t 
           }
       } else {
           Serial.println("Updating firmware");
+          ESP_LOGW("UPDATE", "Updating firmware");
           if (!Update.begin(UPDATE_SIZE_UNKNOWN, U_FLASH)) {
               Update.printError(Serial);
               request->send(500, "text/plain", "Failed to start firmware update");
@@ -316,7 +328,8 @@ void handleUpdateUpload(AsyncWebServerRequest *request, String filename, size_t 
 
   if (final) {
       if (Update.end(true)) {
-          Serial.printf("Update completed: %u bytes\n", index + len);
+          //Serial.printf("Update completed: %u bytes\n", index + len);
+          ESP_LOGW("UPDATE", "Update completed: %u bytes\n", index + len);
       } else {
           Update.printError(Serial);
           request->send(500, "text/plain", "Update failed");
@@ -330,7 +343,7 @@ void handleUpdateEnd(AsyncWebServerRequest *request) {
 
   if (!Update.hasError()) {
       Serial.println("Update successful, restarting...");
-      delay(1000);
+      vTaskDelay(1000 / portTICK_PERIOD_MS);
       ESP.restart();
   } else {
       Serial.println("Update failed");
@@ -358,22 +371,22 @@ void handleRestart(AsyncWebServerRequest *request) {
   if (!isAuthenticated(request)) return;
     request->send(200, "text/plain", "ESP32 is restarting...");
     nextionRestart();
-    delay(1000);
+    vTaskDelay(1000 / portTICK_PERIOD_MS);
     ESP.restart();
 }
 
 void handleRestartFromNextion() {
-  delay(1000);
+  vTaskDelay(1000 / portTICK_PERIOD_MS);
   ESP.restart();
 }
 
 void resetNRF905() {
   Serial.println("Performing nRF905 reset...");
   digitalWrite(NRF905_PWR_UP_PIN, LOW);  // Выключаем питание (пин LOW)
-  delay(200);                            // Задержка (100 мс – можно настроить по datasheet)
+  vTaskDelay(200 / portTICK_PERIOD_MS);                           // Задержка (100 мс – можно настроить по datasheet)
   digitalWrite(NRF905_PWR_UP_PIN, HIGH); // Включаем питание (пин HIGH)
   Serial.println("nRF905 reset complete.");
-  delay(100);
+  vTaskDelay(100 / portTICK_PERIOD_MS);
    // Переинициализация и настройка модуля
   if (xSemaphoreTake(driverMutex, portMAX_DELAY) == pdTRUE) {
     if (driver.init()) {
@@ -406,7 +419,7 @@ void resetI2CBus()
 
   // Устанавливаем SCL в HIGH (чтобы освободить шину)
   digitalWrite(22, HIGH);
-  delay(10);
+  vTaskDelay(10 / portTICK_PERIOD_MS);
 
   // Возвращаем SCL и SDA в режим работы с I2C
   Wire.end();         // Завершаем работу с шиной
@@ -426,7 +439,7 @@ void resetI2CBus()
   {
     Serial.println("Could not find a valid AHT20 sensor, check wiring!");
   }
-  delay(100);
+  vTaskDelay(100 / portTICK_PERIOD_MS);
 }
 
 void handleNRFReset(AsyncWebServerRequest *request) {
@@ -1178,13 +1191,15 @@ void taskForecast(void *pvParameters) {
     } else  {
       vTaskDelay((5000) / portTICK_PERIOD_MS);
     }
-    Serial.print("Parameters sent to forecast: ");
-    Serial.println(p);
+    //Serial.print("Parameters sent to forecast: ");
+    //Serial.println(p);
+    ESP_LOGD("FORECAST", "Parameters sent to forecast: %i Pa", p);
     forecast = cond.getCast();
     trend = cond.getTrend() / 100.0f;
-    Serial.print("Barometric tendence: ");
-    Serial.print(trend);
-    Serial.println(" hPa");
+    // Serial.print("Barometric tendence: ");
+    // Serial.print(trend);
+    // Serial.println(" hPa");
+    ESP_LOGD("FORECAST", "Barometric trend: %f hPa", trend);
 
     vTaskDelay((30 * 60 * 1000) / portTICK_PERIOD_MS);  // 30 минут задержки
   }
@@ -1266,88 +1281,21 @@ void sendPage1Data() {
 }
 
 // Функция синхронизации состояния кнопок Nextion
-void syncWebServerButtonState() {
-  if (isTaskActive(taskWebServerHandle)) {
-    nextion.print("bt0.val=1");
-  } else {
-    nextion.print("bt0.val=0");
-  }
-  nextionFin();
-}
-
-void syncnRF905ButtonState() {
-  if (isTaskActive(taskNRF905Handle)) {
-    nextion.print("bt1.val=1");
-  } else {
-    nextion.print("bt1.val=0");
-  }
-  nextionFin();
-}
-
-void syncCO2ButtonState() {
-  if (isTaskActive(taskCO2ReadHandle)) {
-    nextion.print("bt2.val=1");
-  } else {
-    nextion.print("bt2.val=0");
-  }
-  nextionFin();
-}
-
-void syncNextionButtonState() {
-  if (isTaskActive(processNextionTaskHandle)) {
-    nextion.print("bt3.val=1");
-  } else {
-    nextion.print("bt3.val=0");
-  }
-  nextionFin();
-}
-
-void syncBMP280ButtonState() {
-  if (isTaskActive(taskBMP280Handle)) {
-    nextion.print("bt4.val=1");
-  } else {
-    nextion.print("bt4.val=0");
-  }
-  nextionFin();
-}
-
-void syncInfluxDBButtonState() {
-  if (isTaskActive(taskSendDataToInfluxDBHandle)) {
-    nextion.print("bt5.val=1");
-  } else {
-    nextion.print("bt5.val=0");
-  }
-  nextionFin();
-}
-
-void syncForecastButtonState() {
-  if (isTaskActive(taskForecasterHandle)) {
-    nextion.print("bt6.val=1");
-  } else {
-    nextion.print("bt6.val=0");
-  }
-  nextionFin();
-}
-
-void syncNTPButtonState() {
-  if (isTaskActive(taskGetTimeHandle)) {
-    nextion.print("bt7.val=1");
-  } else {
-    nextion.print("bt7.val=0");
-  }
+void syncButtonState(int buttonId, TaskHandle_t taskHandle) {
+  nextion.printf("bt%d.val=%d", buttonId, isTaskActive(taskHandle) ? 1 : 0);
   nextionFin();
 }
 
 // Отправка данных о состоянии кнопок на Nextion
 void sendPage2Data() {
-  syncWebServerButtonState();
-  syncnRF905ButtonState();
-  syncCO2ButtonState();
-  syncNextionButtonState();
-  syncBMP280ButtonState();
-  syncInfluxDBButtonState();
-  syncForecastButtonState();
-  syncNTPButtonState();
+  syncButtonState(0, taskWebServerHandle);
+  syncButtonState(1, taskNRF905Handle);
+  syncButtonState(2, taskCO2ReadHandle);
+  syncButtonState(3, processNextionTaskHandle);
+  syncButtonState(4, taskBMP280Handle);
+  syncButtonState(5, taskSendDataToInfluxDBHandle);
+  syncButtonState(6, taskForecasterHandle);
+  syncButtonState(7, taskGetTimeHandle);
 }
 
 // Обработчик бинарного сообщения от Nextion
@@ -1399,49 +1347,49 @@ void processNextionMessageBinary(const uint8_t* msg, size_t len) {
       // Переключаем веб-сервер
       switchTaskNRF905();
       // Синхронизируем состояние dual-state кнопки
-      syncnRF905ButtonState();
+      syncButtonState(1, taskNRF905Handle);
     }
     else if (compID == 0x08) {
       Serial.println("Button pressed: bt2");
       // Переключаем веб-сервер
       switchTaskCO2Read();
       // Синхронизируем состояние dual-state кнопки
-      syncCO2ButtonState();
+      syncButtonState(2, taskCO2ReadHandle);
     }
     else if (compID == 0x09) {
       Serial.println("Button pressed: bt3");
       // Переключаем веб-сервер
       switchTaskNextion();
       // Синхронизируем состояние dual-state кнопки
-      syncNextionButtonState();
+      syncButtonState(3, processNextionTaskHandle);
     }
     else if (compID == 0x0A) {
       Serial.println("Button pressed: bt4");
       // Переключаем веб-сервер
       switchTaskBMP280();
       // Синхронизируем состояние dual-state кнопки
-      syncBMP280ButtonState();
+      syncButtonState(4, taskBMP280Handle);
     }
     else if (compID == 0x0B) {
       Serial.println("Button pressed: bt5");
       // Переключаем веб-сервер
       switchTaskInfluxDB();
       // Синхронизируем состояние dual-state кнопки
-      syncInfluxDBButtonState();
+      syncButtonState(5, taskSendDataToInfluxDBHandle);
     }
     else if (compID == 0x0C) {
       Serial.println("Button pressed: bt6");
       // Переключаем веб-сервер
       switchTaskForecaster();
       // Синхронизируем состояние dual-state кнопки
-      syncForecastButtonState();
+      syncButtonState(6, taskForecasterHandle);
     }
     else if (compID == 0x0D) {
       Serial.println("Button pressed: bt7");
       // Переключаем веб-сервер
       switchTaskNTP();
       // Синхронизируем состояние dual-state кнопки
-      syncNTPButtonState();
+      syncButtonState(7, taskGetTimeHandle);
     }
   }
 }
@@ -1633,16 +1581,19 @@ void setup()
 {
   Serial.begin(115200);
   nextion.begin(115200, SERIAL_8N1, RX2, TX2); // Инициализация Serial2  
-  Serial.println("ESP32 + Nextion Initialized");
+  //Serial.println("ESP32 + Nextion Initialized");
+  ESP_LOGI("INIT", "ESP32 + Nextion Initialized");
 
 
   // Настройка пина для управления PWR_UP nRF905
   pinMode(NRF905_PWR_UP_PIN, OUTPUT);
   digitalWrite(NRF905_PWR_UP_PIN, HIGH);  // В нормальном режиме модуль должен получать питание (HIGH)
-  Serial.println("Powering on nRF905...");
+  //Serial.println("Powering on nRF905...");
+  ESP_LOGI("INIT", "Powering on nRF905...");
 
   SPI.begin(NRF905_SPI_SCK, NRF905_SPI_MISO, NRF_SPI_MOSI);
-  Serial.println("SPI Initialized");
+  //Serial.println("SPI Initialized");
+  ESP_LOGI("INIT", "SPI Initialized");
 
 
   // Инициализация файловой системы
@@ -1661,10 +1612,13 @@ void setup()
   while (WiFi.status() != WL_CONNECTED)
   {
     delay(1000);
-    Serial.println("Connecting to Wi-Fi...");
+    //Serial.println("Connecting to Wi-Fi...");
+    ESP_LOGI("INIT", "Connecting to Wi-Fi...");
   }
-  Serial.println("Wi-Fi connected!");
-  Serial.println(WiFi.localIP());
+  //Serial.println("Wi-Fi connected!");
+  //Serial.println(WiFi.localIP());
+  ESP_LOGI("INIT", "Wi-Fi connected!");
+  ESP_LOGI("INIT", "Local IP: " IPSTR, IP2STR(&WiFi.localIP()));
 
   // Настройка сервера
   server.serveStatic("/", LittleFS, "/");
@@ -1703,52 +1657,58 @@ void setup()
   webSocket1.onEvent(onWsEvent1);
 
   webServerRunning = true;
-  Serial.setDebugOutput(true);
+  Serial.setDebugOutput(false);
 
   nextionRestart();
 
   // Инициализация радиомодуля
   if (!driver.init())
   {
-    Serial.println("Failed initialize nRF905!");
+    //Serial.println("Failed initialize nRF905!");
+    ESP_LOGE("INIT", "Failed initialize nRF905!");
   } else {
-    Serial.println("nRF905 initialized");
+    //Serial.println("nRF905 initialized");
+    ESP_LOGI("INIT", "nRF905 initialized");
   }
 
   // Настройка канала и диапазона
   driver.setChannel(175, false); // Канал 175 = 439.9 МГц
   driver.setRF(RH_NRF905::TransmitPower10dBm);
-  Serial.println("nRF905 configured and ready!");
+  //Serial.println("nRF905 configured and ready!");
+  ESP_LOGI("INIT", "nRF905 configured and ready!");
 
 
   // Инициализация датчиков i2c
   if (!bme.begin(0x76)) {
-      Serial.println("BME280 not detected. Please check wiring!");
+      //Serial.println("BME280 not detected. Please check wiring!");
+      ESP_LOGE("INIT", "BME280 not detected. Please check wiring!");
     } else {
-      Serial.println("BME280 detected");
+      //Serial.println("BME280 detected");
+      ESP_LOGI("INIT", "BME280 detected");
   }
 
   if (!ens160.begin()) {
-      Serial.println("Air Quality Sensor did not begin.");
+      //Serial.println("ENS160 not detected. Please check wiring!");
+      ESP_LOGE("INIT", "ENS160 not detected. Please check wiring!");
     } else {
-      Serial.println("ENS160 detected");
-
+      //Serial.println("ENS160 detected");
+      ESP_LOGI("INIT", "ENS160 detected");
   }
 
   if (!aht20.begin()) {
-    Serial.println("AHT21 not detected. Please check wiring!.");
+    //Serial.println("AHT21 not detected. Please check wiring!.");
+    ESP_LOGE("INIT", "AHT21 not detected. Please check wiring!");
   } else {
-    Serial.println("AHT21 detected");
+    //Serial.println("AHT21 detected");
+    ESP_LOGI("INIT", "AHT21 detected");
   }
 
-  Serial.println(ens160.isConnected() ? "done." : "failed!");
   if (ens160.isConnected()) {
-    // Print ENS160 versions
-    Serial.print("\tRev: "); Serial.println(ens160.getAppVer());
-    Serial.print("Mode: "); Serial.println(ens160.getFlags());
-  
-    Serial.print("Operational mode: "); Serial.println(ens160.getOperatingMode());
-    }
+    ESP_LOGI("INIT", "ENS160 connected.");
+    ESP_LOGI("INIT", "App Ver: %u", ens160.getAppVer());
+} else {
+    ESP_LOGE("INIT", "ENS160 failed!");
+}
 
 
   // Настройка времени через NTP
@@ -1761,12 +1721,14 @@ void setup()
   // Создание мьютексов
   i2cMutex = xSemaphoreCreateMutex();
     if (i2cMutex == NULL) {
-    Serial.println("Failed to create mutex for i2c!");
+    //Serial.println("Failed to create mutex for i2c!");
+    ESP_LOGE("MUTEX", "Failed to create mutex for i2c!");
   }
 
   driverMutex = xSemaphoreCreateMutex();
     if (driverMutex == NULL) {
-    Serial.println("Failed to create mutex for nRF905!");
+    //Serial.println("Failed to create mutex for nRF905!");
+    ESP_LOGE("MUTEX", "Failed to create mutex for nRF905!");
   }
 
   // Создание задач FreeRTOS
