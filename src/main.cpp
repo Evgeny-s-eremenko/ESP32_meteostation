@@ -342,11 +342,13 @@ void handleUpdateEnd(AsyncWebServerRequest *request) {
   request->send(200, "text/plain", (Update.hasError()) ? "FAIL" : "OK");
 
   if (!Update.hasError()) {
-      Serial.println("Update successful, restarting...");
+      //Serial.println("Update successful, restarting...");
+      ESP_LOGW("UPDATE", "Update successful, restarting...");
       vTaskDelay(1000 / portTICK_PERIOD_MS);
       ESP.restart();
   } else {
-      Serial.println("Update failed");
+      //Serial.println("Update failed");
+      ESP_LOGE("UPDATE", "Update failed");
   }
 }
 
@@ -357,12 +359,15 @@ void handleAdmin(AsyncWebServerRequest *request) {
 }
 
 void handleAbout(AsyncWebServerRequest *request) {
-  Serial.println("Attempting to load /about.html");
+ // Serial.println("Attempting to load /about.html");
+  ESP_LOGV("WEB", "Attempting to load /about.html");
   if (LittleFS.exists("/about.html")) {
-      Serial.println("/about.html found, sending...");
+     // Serial.println("/about.html found, sending...");
+      ESP_LOGV("WEB", "/about.html found, sending...");
       request->send(LittleFS, "/about.html", "text/html");
   } else {
-      Serial.println("/about.html not found");
+     // Serial.println("/about.html not found");
+      ESP_LOGE("WEB", "/about.html not found");
       request->send(404, "text/plain", "about.html not found");
   }
 }
@@ -370,6 +375,7 @@ void handleAbout(AsyncWebServerRequest *request) {
 void handleRestart(AsyncWebServerRequest *request) {
   if (!isAuthenticated(request)) return;
     request->send(200, "text/plain", "ESP32 is restarting...");
+    ESP_LOGW("SYS", "ESP32 is restarting from command");
     nextionRestart();
     vTaskDelay(1000 / portTICK_PERIOD_MS);
     ESP.restart();
@@ -381,21 +387,25 @@ void handleRestartFromNextion() {
 }
 
 void resetNRF905() {
-  Serial.println("Performing nRF905 reset...");
+  //Serial.println("Performing nRF905 reset...");
+  ESP_LOGW("NRF905", "Performing nRF905 reset...");
   digitalWrite(NRF905_PWR_UP_PIN, LOW);  // Выключаем питание (пин LOW)
-  vTaskDelay(200 / portTICK_PERIOD_MS);                           // Задержка (100 мс – можно настроить по datasheet)
+  vTaskDelay(200 / portTICK_PERIOD_MS);  // Задержка по datasheet
   digitalWrite(NRF905_PWR_UP_PIN, HIGH); // Включаем питание (пин HIGH)
-  Serial.println("nRF905 reset complete.");
+  //Serial.println("nRF905 reset complete.");
+  ESP_LOGW("NRF905", "nRF905 reset complete.");
   vTaskDelay(100 / portTICK_PERIOD_MS);
    // Переинициализация и настройка модуля
   if (xSemaphoreTake(driverMutex, portMAX_DELAY) == pdTRUE) {
     if (driver.init()) {
-        Serial.println("nRF905 reinitialized successfully.");
+        //Serial.println("nRF905 reinitialized successfully.");
+        ESP_LOGW("NRF905", "nRF905 reinitialized successfully.");
         driver.setChannel(175, false); // Канал 175 = 439.9 МГц
         driver.setRF(RH_NRF905::TransmitPowerm2dBm);
         // Другие необходимые настройки...
       } else {
-        Serial.println("Failed to reinitialize nRF905.");
+       // Serial.println("Failed to reinitialize nRF905.");
+        ESP_LOGE("NRF905", "Failed to reinitialize nRF905.");
       }
     xSemaphoreGive(driverMutex);
     }
