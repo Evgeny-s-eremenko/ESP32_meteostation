@@ -633,7 +633,9 @@ void handleSetNRF905(AsyncWebServerRequest *request) {
       bool band = (request->getParam("band", true)->value() == "true");
       String powerStr = request->getParam("power", true)->value();
 
-      Serial.printf("Settings received: channel = %d, band = %s, power = %s\n",
+      // Serial.printf("Settings received: channel = %d, band = %s, power = %s\n",
+      //               channel, (band ? "hiband" : "lowband"), powerStr.c_str());
+      ESP_LOGI("NRF905", "Settings received: channel = %d, band = %s, power = %s\n",
                     channel, (band ? "hiband" : "lowband"), powerStr.c_str());
 
       if (xSemaphoreTake(driverMutex, portMAX_DELAY) == pdTRUE) {
@@ -729,20 +731,14 @@ void sendDataToInfluxDB()
 
   int httpResponseCode = http.POST(influxDBLine);
 
-  if (httpResponseCode > 0)
-  {
-    Serial.print("HTTP Response code: ");
-    Serial.println(httpResponseCode);
-    if (httpResponseCode != 204)
-    {
-      Serial.println(http.getString()); // Выводим ответ сервера для отладки
+  if (httpResponseCode > 0) {
+    ESP_LOGI("InfluxDB", "HTTP Response code: %d", httpResponseCode);
+    if (httpResponseCode != 204) {
+        ESP_LOGD("InfluxDB", "Server response: %s", http.getString().c_str()); // Логируем ответ сервера на уровне DEBUG
     }
-  }
-  else
-  {
-    Serial.print("Error sending data to InfluxDB: ");
-    Serial.println(http.errorToString(httpResponseCode));
-  }
+} else {
+    ESP_LOGE("InfluxDB", "Error sending data to InfluxDB: %s", http.errorToString(httpResponseCode).c_str());
+}
 
   http.end();
 }
@@ -758,32 +754,25 @@ int getMonth() {
 
 void onWsEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type, void *arg, uint8_t *data, size_t len) {
   if (type == WS_EVT_CONNECT) {
-      Serial.printf("WebSocket client #%u connected from %s\n", client->id(), client->remoteIP().toString().c_str());
+      ESP_LOGI("WS", "WebSocket client #%u connected from %s", client->id(), client->remoteIP().toString().c_str());
   } else if (type == WS_EVT_DISCONNECT) {
-      Serial.printf("WebSocket client #%u disconnected\n", client->id());
+      ESP_LOGI("WS", "WebSocket client #%u disconnected", client->id());
   } else if (type == WS_EVT_DATA) {
       AwsFrameInfo *info = (AwsFrameInfo *)arg;
       if (info->final && info->index == 0 && info->len == len && info->opcode == WS_TEXT) {
-          String msg = (char *)data;
-          Serial.printf("Received message: %s\n", msg.c_str());
+          ESP_LOGD("WS", "Received message: %.*s", len, (char *)data);
       }
   }
 }
 
-void onWsEvent1(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type,
-                void *arg, uint8_t *data, size_t len)
-{
-  if (type == WS_EVT_CONNECT)
-  {
-    Serial.println("Client connected to /ws1");
-  }
-  else if (type == WS_EVT_DATA)
-  {
-    String message = (char *)data;
-    if (message == "getTime")
-    {
-      sendTimeData();
-    }
+void onWsEvent1(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type, void *arg, uint8_t *data, size_t len) {
+  if (type == WS_EVT_CONNECT) {
+      ESP_LOGI("WS", "Client connected to /ws1");
+  } else if (type == WS_EVT_DATA) {
+      if (strncmp((char *)data, "getTime", len) == 0) {
+          ESP_LOGD("WS", "Received 'getTime' request");
+          sendTimeData();
+      }
   }
 }
 
@@ -816,7 +805,8 @@ void switchTaskInfluxDB() {
     // Если задача активна - останавливаем
     vTaskSuspend(taskSendDataToInfluxDBHandle);
     sendDataToInfluxDBRunning = false;
-    Serial.println("Отправка в базу данных: остановлена");
+    ESP_LOGD("SYS", "InfluxDB: Stopped");
+    // Serial.println("Отправка в базу данных: остановлена");
   } else {
     // Если задача неактивна - запускаем/возобновляем
     if (taskSendDataToInfluxDBHandle == NULL) {
@@ -828,10 +818,12 @@ void switchTaskInfluxDB() {
         6,
         &taskSendDataToInfluxDBHandle
       );
-      Serial.println("Отправка в базу данных: created and running");
+      //Serial.println("Отправка в базу данных: created and running");
+      ESP_LOGD("SYS", "InfluxDB: created and running");
     } else {
       vTaskResume(taskSendDataToInfluxDBHandle);
-      Serial.println("Отправка в базу данных: возобновлёна");
+      //Serial.println("Отправка в базу данных: возобновлёна");
+      ESP_LOGD("SYS", "InfluxDB: resumed");
     }
     sendDataToInfluxDBRunning = true;
   }
@@ -844,7 +836,8 @@ void switchTaskCO2Read() {
     mh19.end();
     vTaskSuspend(taskCO2ReadHandle);
     CO2ReadRunning = false;
-    Serial.println("Чтение с датчика CO2: остановлено");
+    //Serial.println("Чтение с датчика CO2: остановлено");
+    ESP_LOGD("SYS", "CO2 Task: stopped");
   } else {
     mh19.begin(9600, SERIAL_8N1, RX1, TX1);
     // Если задача неактивна - запускаем/возобновляем
@@ -857,10 +850,12 @@ void switchTaskCO2Read() {
         3,
         &taskCO2ReadHandle
       );
-      Serial.println("Чтение с датчика CO2: created and running");
+      //Serial.println("Чтение с датчика CO2: created and running");
+      ESP_LOGD("SYS", "CO2 Task: created and running");
     } else {
       vTaskResume(taskCO2ReadHandle);
-      Serial.println("Чтение с датчика CO2: возобновлёно");
+      //Serial.println("Чтение с датчика CO2: возобновлёно");
+      ESP_LOGD("SYS", "CO2 Task: resumed");
     }
     CO2ReadRunning = true;
   }
@@ -872,7 +867,8 @@ void switchTaskNRF905() {
     // Если задача активна - останавливаем
     vTaskSuspend(taskNRF905Handle);
     nRF905Running = false;
-    Serial.println("Прием с nRF905: остановлен");
+    //Serial.println("Прием с nRF905: остановлен");
+    ESP_LOGD("SYS", "NRF905 Task: stopped");
   } else {
     // Если задача неактивна - запускаем/возобновляем
     if (taskNRF905Handle == NULL) {
@@ -884,10 +880,12 @@ void switchTaskNRF905() {
         5,
         &taskNRF905Handle
       );
-      Serial.println("Прием с nRF905: created and running");
+      //Serial.println("Прием с nRF905: created and running");
+      ESP_LOGD("SYS", "NRF905 Task: created and running");
     } else {
       vTaskResume(taskNRF905Handle);
-      Serial.println("Прием с nRF905: возобновлён");
+      //Serial.println("Прием с nRF905: возобновлён");
+      ESP_LOGD("SYS", "NRF905 Task: resumed");
     }
     nRF905Running = true;
   }
@@ -901,7 +899,8 @@ void switchTaskNextion() {
     vTaskDelay(200 / portTICK_PERIOD_MS);
     vTaskSuspend(processNextionTaskHandle);
     processNextionRunning = false;
-    Serial.println("Обновление дисплея: остановлено");
+    //Serial.println("Обновление дисплея: остановлено");
+    ESP_LOGD("SYS", "Nextion Task: stopped");
   } else {
     // Если задача неактивна - запускаем/возобновляем
     if (processNextionTaskHandle == NULL) {
@@ -913,11 +912,13 @@ void switchTaskNextion() {
         3,
         &processNextionTaskHandle
       );
-      Serial.println("Обновление дисплея: created and running");
+      //Serial.println("Обновление дисплея: created and running");
+      ESP_LOGD("SYS", "Nextion Task: created and running");
     } else {
       vTaskResume(processNextionTaskHandle);
       nextionWakeUP();
-      Serial.println("Обновление дисплея: возобновлёно");
+      //Serial.println("Обновление дисплея: возобновлёно");
+      ESP_LOGD("SYS", "Nextion Task: resumed");
     }
     processNextionRunning = true;
   }
@@ -929,7 +930,8 @@ void switchTaskBMP280() {
     // Если задача активна - останавливаем
     vTaskSuspend(taskBMP280Handle);
     BMP280Running = false;
-    Serial.println("Чтение с BME280: остановлено");
+    //Serial.println("Чтение с BME280: остановлено");
+    ESP_LOGD("SYS", "BME280 Task: stopped");
   } else {
     // Если задача неактивна - запускаем/возобновляем
     if (taskBMP280Handle == NULL) {
@@ -941,10 +943,12 @@ void switchTaskBMP280() {
         4,
         &taskBMP280Handle
       );
-      Serial.println("Чтение с BME280: created and running");
+      //Serial.println("Чтение с BME280: created and running");
+      ESP_LOGD("SYS", "BME280 Task: created and running");
     } else {
       vTaskResume(taskBMP280Handle);
-      Serial.println("Чтение с BME280: возобновлёно");
+      //Serial.println("Чтение с BME280: возобновлёно");
+      ESP_LOGD("SYS", "BME280 Task: resumed");
     }
     BMP280Running = true;
   }
@@ -956,7 +960,8 @@ void switchTaskForecaster() {
     // Если задача активна - останавливаем
     vTaskSuspend(taskForecasterHandle);
     forecasterRunning = false;
-    Serial.println("Forecast: stopped");
+    //Serial.println("Forecast: stopped");
+    ESP_LOGD("SYS", "Forecast Task: stopped");
   } else {
     // Если задача неактивна - запускаем/возобновляем
     if (taskForecasterHandle == NULL) {
@@ -968,10 +973,12 @@ void switchTaskForecaster() {
         1,
         &taskForecasterHandle
       );
-      Serial.println("Forecast: created and running");
+      //Serial.println("Forecast: created and running");
+      ESP_LOGD("SYS", "Forecast Task: created and running");
     } else {
       vTaskResume(taskForecasterHandle);
-      Serial.println("Forecast: resumed");
+      //Serial.println("Forecast: resumed");
+      ESP_LOGD("SYS", "Forecast Task: resumed");
     }
     forecasterRunning = true;
   }
@@ -983,7 +990,8 @@ void switchTaskNTP() {
     // Если задача активна - останавливаем
     vTaskSuspend(taskGetTimeHandle);
     getTimeRunning = false;
-    Serial.println("NTP: stopped");
+    //Serial.println("NTP: stopped");
+    ESP_LOGD("SYS", "NTP Task: stopped");
   } else {
     // Если задача неактивна - запускаем/возобновляем
     if (taskGetTimeHandle == NULL) {
@@ -995,10 +1003,12 @@ void switchTaskNTP() {
         2,
         &taskGetTimeHandle
       );
-      Serial.println("NTP: created and running");
+      //Serial.println("NTP: created and running");
+      ESP_LOGD("SYS", "NTP Task: created and running");
     } else {
       vTaskResume(taskGetTimeHandle);
-      Serial.println("NTP: resumed");
+      //Serial.println("NTP: resumed");
+      ESP_LOGD("SYS", "NTP Task: resumed");
     }
     getTimeRunning = true;
   }
@@ -1010,21 +1020,26 @@ void switchTaskTVOCRead() {
     // Если задача активна - останавливаем
     vTaskSuspend(taskTVOCReadHandle);
     TVOCReadRunning = false;
-    Serial.println("TVOC reading: stopped");
+    //Serial.println("TVOC reading: stopped");
+    ESP_LOGD("SYS", "TVOC reading Task: stopped");
   } else {
     // Если задача неактивна - запускаем/возобновляем
     if (taskTVOCReadHandle == NULL) {
       if (!ens160.begin()) {
-        Serial.println("Air Quality Sensor did not begin.");
+        //Serial.println("Air Quality Sensor did not begin.");
+        ESP_LOGE("INIT", "ENS160 not detected. Please check wiring!");
       } else {
-        Serial.println("ENS160 detected");
+        //Serial.println("ENS160 detected");
+        ESP_LOGI("INIT", "ENS160 detected");
   
       }
   
       if (!aht20.begin()) {
-        Serial.println("AHT21 not detected. Please check wiring!.");
+        //Serial.println("AHT21 not detected. Please check wiring!.");
+        ESP_LOGE("INIT", "AHT21 not detected. Please check wiring!");
       } else {
-        Serial.println("AHT21 detected");
+        //Serial.println("AHT21 detected");
+        ESP_LOGI("INIT", "AHT21 detected");
     }
       xTaskCreate(
         taskTVOCRead,
@@ -1034,10 +1049,12 @@ void switchTaskTVOCRead() {
         2,
         &taskTVOCReadHandle
       );
-      Serial.println("TVOC reading: created and running");
+      //Serial.println("TVOC reading: created and running");
+      ESP_LOGD("SYS", "TVOC reading Task: created and running");
     } else {
       vTaskResume(taskTVOCReadHandle);
-      Serial.println("TVOC reading: resumed");
+      //Serial.println("TVOC reading: resumed");
+      ESP_LOGD("SYS", "TVOC reading Task: resumed");
     }
     TVOCReadRunning = true;
   }
@@ -1053,7 +1070,8 @@ void handleTaskControl(AsyncWebServerRequest *request) {
 
   // Получаем значение параметра "task" из тела запроса
   String task = request->getParam("task", true)->value();
-  Serial.printf("Получен запрос на переключение задачи: %s\n", task.c_str());
+  //Serial.printf("Получен запрос на переключение задачи: %s\n", task.c_str());
+  ESP_LOGD("SYS", "Task switch request received: %s\n", task.c_str());
 
   // Выбор задачи для переключения
   if (task == "CO2") {
@@ -1204,7 +1222,7 @@ void taskForecast(void *pvParameters) {
   for (;;) {
     int month = getMonth();
     if (month != -1) {
-      ESP_LOGD("FORECAST", "Sending month to forecast: i%", getMonth());
+      ESP_LOGD("FORECAST", "Sending month to forecast: i%", month);
       cond.setMonth(month);  // Устанавливаем текущий месяц в Forecaster
     }
     int p = pressure * 100;
