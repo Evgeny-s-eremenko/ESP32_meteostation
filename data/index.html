@@ -1,6 +1,7 @@
 ﻿<!DOCTYPE html>
 <html>
 <meta charset='UTF-8'>
+
 <head>
     <title>ESP32 Dashboard</title>
     <style>
@@ -43,7 +44,8 @@
         }
 
         .widget:hover {
-            background-color: #575eac;  /* Цвет при нажатии */
+            background-color: #575eac;
+            /* Цвет при нажатии */
         }
 
         #temperatureIcon {
@@ -88,7 +90,8 @@
         }
 
         .pressure-widget:hover {
-            background-color: #575eac;  /* Цвет при нажатии */
+            background-color: #575eac;
+            /* Цвет при нажатии */
         }
 
         #weatherIcon {
@@ -184,28 +187,151 @@
         .progress-bar-fill {
             height: 100%;
             border-radius: 5px;
-            transition: width 0.3s ease, background-color 0.3s ease; /* Плавное изменение ширины и цвета */
+            transition: width 0.3s ease, background-color 0.3s ease;
+            /* Плавное изменение ширины и цвета */
         }
 
         #Button {
             width: 90px;
             height: 50px;
-            border: none;            /* Убираем границу */
-            outline: none;           /* Убираем обводку при фокусе */
-            background-color: #242749; /* Фоновый цвет, который подходит под стиль остальных виджетов */
-            padding: 15px;       /* Отступы для удобства клика */
-            font-size: 12px;          /* Размер шрифта */
+            border: none;
+            /* Убираем границу */
+            outline: none;
+            /* Убираем обводку при фокусе */
+            background-color: #242749;
+            /* Фоновый цвет, который подходит под стиль остальных виджетов */
+            padding: 15px;
+            /* Отступы для удобства клика */
+            font-size: 12px;
+            /* Размер шрифта */
             text-align: center;
-            cursor: pointer;          /* Курсор-рука при наведении */
-            transition: background-color 0.3s ease; /* Плавное изменение цвета при нажатии */
+            cursor: pointer;
+            /* Курсор-рука при наведении */
+            transition: background-color 0.3s ease;
+            /* Плавное изменение цвета при нажатии */
         }
 
         /* Изменение цвета при нажатии (активном состоянии) */
         #Button:hover {
-            background-color: #575eac;  /* Цвет при нажатии */
+            background-color: #575eac;
+            /* Цвет при нажатии */
+        }
+
+        .sunset-widget {
+            width: 500px;
+            /* Фиксированная ширина */
+            height: auto;
+            /* Увеличенная высота */
+            margin: 0 auto;
+            /* Тоже по центру внутри .container */
+            grid-column: span 2;
+
+            background-color: #242749;
+            color: #c7c7c7;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 2px 3px 1px rgba(0, 0, 0, 0.185);
+            transition: background-color 0.3s ease;
+            /* Располагаем элементы по вертикали:
+   сверху - метки и дуга, снизу - текущее время */
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .sunset-widget:hover {
+            background-color: #575eac;
+            /* Цвет при нажатии */
+        }
+
+        /* Верхняя часть (метки и дуга) */
+        .top-row {
+            position: relative;
+            width: 300px;
+            /* Фиксированная ширина, совпадает с дугой */
+            height: 150px;
+            /* Высота под дугу */
+            margin-bottom: 10px;
+        }
+
+        /* Метки восхода и заката */
+        .sunrise-label,
+        .sunset-label {
+            position: absolute;
+            top: 50%;
+            transform: translateY(-50%);
+            font-size: 16px;
+            width: 60px;
+            text-align: center;
+        }
+
+        .sunrise-label {
+            left: -90px;
+            top: 137px;
+        }
+
+        .sunset-label {
+            right: -90px;
+            top: 137px;
+        }
+
+        /* Внешний контейнер для дуги (по центру) */
+        #sunArcWrapper {
+            position: absolute;
+            left: 50%;
+            top: 0;
+            transform: translateX(-50%);
+            width: 300px;
+            height: 150px;
+            overflow: visible;
+            /* солнце не обрезается */
+        }
+
+        /* Сам полукруг */
+        #sunArc {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 300px;
+            height: 150px;
+            border-top-left-radius: 150px;
+            border-top-right-radius: 150px;
+            border: 2px solid #fff;
+            /* линия дуги */
+            background-color: #428bc9;
+            box-sizing: border-box;
+            overflow: hidden;
+            /* «горизонт» не выходит за границы */
+        }
+
+        .horizon {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            height: 15%;
+            background: #554a22;
+        }
+
+        /* Солнце */
+        #sun {
+            position: absolute;
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            background: gold;
+            transform: translate(-50%, -50%);
+        }
+
+        /* Нижняя часть (текущее время/дата) */
+        .bottom-row {
+            text-align: center;
+            font-size: 16px;
         }
     </style>
 </head>
+
 <body>
     <h1>Погодная станция</h1>
     <div class="container">
@@ -275,6 +401,23 @@
                 <div class="progress-bar-fill" id="pressureBar"></div>
             </div>
         </div>
+        <div class="sunset-widget">
+            <!-- Верхняя часть -->
+            <div class="top-row">
+                <div class="sunrise-label" id="sunriseLabel"></div>
+                <div id="sunArcWrapper">
+                    <div id="sunArc">
+                        <div class="horizon"></div>
+                    </div>
+                    <div id="sun"></div>
+                </div>
+                <div class="sunset-label" id="sunsetLabel"></div>
+            </div>
+            <!-- Нижняя часть -->
+            <div class="bottom-row">
+                <div id="currentDateTime"></div>
+            </div>
+        </div>
         <div class="pressure-widget">
             <h2>CO2</h2>
             <img id="CO2Icon" src="/CO2_green.png" alt="CO2 Icon">
@@ -310,5 +453,7 @@
     </div>
     <script src="https://d3js.org/d3.v7.min.js"></script>
     <script src="/script.js"></script>
+    <script src="/sunset.js"></script>
 </body>
+
 </html>
