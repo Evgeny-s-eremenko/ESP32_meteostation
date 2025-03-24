@@ -4,6 +4,7 @@
 #include <SparkFun_ENS160.h>
 #include <SparkFun_Qwiic_Humidity_AHT20.h>
 #include <WiFi.h>
+#include <esp_wifi.h>
 #include <Update.h>
 #include <ArduinoJson.h>
 #include <SPI.h>
@@ -49,6 +50,9 @@ extern TaskHandle_t taskTVOCReadHandle = NULL;
 // Мьютексы
 SemaphoreHandle_t i2cMutex;
 SemaphoreHandle_t driverMutex;
+
+// Таймер
+TimerHandle_t wifiTimer;
 
 // Флаги задач
 volatile bool webServerRunning = false;
@@ -179,7 +183,6 @@ void setupFileSystem()
 {
   if (!LittleFS.begin())
   {
-    // Serial.println("Failed to initialize LittleFS");
     ESP_LOGE("INIT", "Failed to initialize LittleFS");
   }
   else
@@ -221,50 +224,62 @@ void handleGraphData(AsyncWebServerRequest *request) {
 }
 
 
-void handleGetTasksState(AsyncWebServerRequest *request) {
-  String stateJson = "{";
-  stateJson += "\"webServer\":" + String(isTaskActive(taskWebServerHandle) ? "true" : "false") + ",";
-  stateJson += "\"nRF905\":" + String(isTaskActive(taskNRF905Handle) ? "true" : "false") + ",";
-  stateJson += "\"CO2\":" + String(isTaskActive(taskCO2ReadHandle) ? "true" : "false") + ",";
-  stateJson += "\"nextion\":" + String(isTaskActive(processNextionTaskHandle) ? "true" : "false") + ",";
-  stateJson += "\"BMP280\":" + String(isTaskActive(taskBMP280Handle) ? "true" : "false") + ",";
-  stateJson += "\"InfluxDB\":" + String(isTaskActive(taskSendDataToInfluxDBHandle) ? "true" : "false") + ",";
-  stateJson += "\"Forecaster\":" + String(isTaskActive(taskForecasterHandle) ? "true" : "false") + ",";
-  stateJson += "\"NTP\":" + String(isTaskActive(taskGetTimeHandle) ? "true" : "false") + ",";
-  stateJson += "\"TVOC\":" + String(isTaskActive(taskTVOCReadHandle) ? "true" : "false");
-  stateJson += "}";
-
-  request->send(200, "application/json", stateJson);
+// Общая функция для формирования JSON состояния задач
+void buildTaskStateJson(char* buffer, size_t bufferSize) {
+  const char* jsonFormat = 
+    "{\"webServer\":%s,\"nRF905\":%s,\"CO2\":%s,\"nextion\":%s,"
+    "\"BMP280\":%s,\"InfluxDB\":%s,\"Forecaster\":%s,\"NTP\":%s,\"TVOC\":%s}";
+    
+  snprintf(buffer, bufferSize, jsonFormat,
+    isTaskActive(taskWebServerHandle) ? "true" : "false",
+    isTaskActive(taskNRF905Handle) ? "true" : "false",
+    isTaskActive(taskCO2ReadHandle) ? "true" : "false",
+    isTaskActive(processNextionTaskHandle) ? "true" : "false",
+    isTaskActive(taskBMP280Handle) ? "true" : "false",
+    isTaskActive(taskSendDataToInfluxDBHandle) ? "true" : "false",
+    isTaskActive(taskForecasterHandle) ? "true" : "false",
+    isTaskActive(taskGetTimeHandle) ? "true" : "false",
+    isTaskActive(taskTVOCReadHandle) ? "true" : "false");
 }
 
-void sendTaskStateUpdate() {
-  String stateJson = "{";
-  stateJson += "\"webServer\":" + String(isTaskActive(taskWebServerHandle) ? "true" : "false") + ",";
-  stateJson += "\"nRF905\":" + String(isTaskActive(taskSendDataToInfluxDBHandle) ? "true" : "false") + ",";
-  stateJson += "\"CO2\":" + String(isTaskActive(taskCO2ReadHandle) ? "true" : "false") + ",";
-  stateJson += "\"nextion\":" + String(isTaskActive(processNextionTaskHandle) ? "true" : "false") + ",";
-  stateJson += "\"BMP280\":" + String(isTaskActive(taskBMP280Handle) ? "true" : "false") + ",";
-  stateJson += "\"InfluxDB\":" + String(isTaskActive(taskSendDataToInfluxDBHandle) ? "true" : "false") + ",";
-  stateJson += "\"Forecaster\":" + String(isTaskActive(taskForecasterHandle) ? "true" : "false") + ",";
-  stateJson += "\"NTP\":" + String(isTaskActive(taskGetTimeHandle) ? "true" : "false") + ",";
-  stateJson += "\"TVOC\":" + String(isTaskActive(taskTVOCReadHandle) ? "true" : "false");
-  stateJson += "}";
+// HTTP обработчик
+void handleGetTasksState(AsyncWebServerRequest *request) {
+  char jsonBuffer[256]; // С запасом для будущих полей
+  
+  buildTaskStateJson(jsonBuffer, sizeof(jsonBuffer));
+  ESP_LOGD("WEB", "Sending task states via HTTP: %s", jsonBuffer);
+  
+  request->send(200, "application/json", jsonBuffer);
+}
 
-  webSocket.textAll(stateJson); // Асинхронная отправка данных всем клиентам
-  ESP_LOGD("WEB", "Sending task states to WS: s%", stateJson);
+// WebSocket отправка
+void sendTaskStateUpdate() {
+  char jsonBuffer[256];
+  
+  buildTaskStateJson(jsonBuffer, sizeof(jsonBuffer));
+  webSocket.textAll(jsonBuffer);
+  
+  ESP_LOGD("WEB", "Sending task states to WS: %s", jsonBuffer);
 }
 
 void sendTimeData() {
-  if (webSocket1.count() > 0) {  // Проверяем, есть ли клиенты
-      StaticJsonDocument<256> json;
-      json["nowTime"] = time(nullptr);  // Функция получения текущего времени
-      json["sunriseTime"] = sunriseTime * 60; // Перевод из минут в секунды
-      json["sunsetTime"] = sunsetTime * 60;
+  if(webSocket1.count() > 0) {
+    StaticJsonDocument<128> json;
+    json["nowTime"] = time(nullptr);
+    json["sunriseTime"] = sunriseTime * 60;
+    json["sunsetTime"] = sunsetTime * 60;
 
-      String jsonString;
-      serializeJson(json, jsonString);
-      webSocket1.textAll(jsonString);
-      ESP_LOGD("WEB", "Sending time data to WS: s%", jsonString);
+    // Статический буфер + проверка переполнения
+    static char jsonBuffer[160]; // Размер должен быть больше максимально возможного JSON
+    const size_t len = serializeJson(json, jsonBuffer, sizeof(jsonBuffer));
+    
+    if(len >= sizeof(jsonBuffer) - 1) {
+      ESP_LOGE("WEB", "JSON buffer overflow!");
+      return;
+    }
+    
+    webSocket1.textAll(jsonBuffer, len);
+    ESP_LOGD("WEB", "Sending time data to WS: %.*s", len, jsonBuffer);
   }
 }
 
@@ -292,18 +307,15 @@ void handleUpdateForm(AsyncWebServerRequest *request) {
 
 void handleUpdateUpload(AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final) {
   if (!isAuthenticated(request)) {
-      //Serial.println("Authentication failed");
       ESP_LOGW("WEB", "Authentication failed");
       request->send(401, "text/plain", "Unauthorized");
       return;
   }
 
   if (index == 0) {
-      //Serial.printf("Update started: %s\n", filename.c_str());
       ESP_LOGW("UPDATE", "Update started: %s\n", filename.c_str());
 
       if (filename.indexOf("littlefs") >= 0) {
-          //Serial.println("Updating filesystem");
           ESP_LOGW("UPDATE", "Updating filesystem");
           if (!Update.begin(UPDATE_SIZE_UNKNOWN, U_SPIFFS)) {
               Update.printError(Serial);
@@ -311,7 +323,6 @@ void handleUpdateUpload(AsyncWebServerRequest *request, String filename, size_t 
               return;
           }
       } else {
-          Serial.println("Updating firmware");
           ESP_LOGW("UPDATE", "Updating firmware");
           if (!Update.begin(UPDATE_SIZE_UNKNOWN, U_FLASH)) {
               Update.printError(Serial);
@@ -331,7 +342,6 @@ void handleUpdateUpload(AsyncWebServerRequest *request, String filename, size_t 
 
   if (final) {
       if (Update.end(true)) {
-          //Serial.printf("Update completed: %u bytes\n", index + len);
           ESP_LOGW("UPDATE", "Update completed: %u bytes\n", index + len);
       } else {
           Update.printError(Serial);
@@ -345,12 +355,10 @@ void handleUpdateEnd(AsyncWebServerRequest *request) {
   request->send(200, "text/plain", (Update.hasError()) ? "FAIL" : "OK");
 
   if (!Update.hasError()) {
-      //Serial.println("Update successful, restarting...");
       ESP_LOGW("UPDATE", "Update successful, restarting...");
       vTaskDelay(1000 / portTICK_PERIOD_MS);
       ESP.restart();
   } else {
-      //Serial.println("Update failed");
       ESP_LOGE("UPDATE", "Update failed");
   }
 }
@@ -362,14 +370,11 @@ void handleAdmin(AsyncWebServerRequest *request) {
 }
 
 void handleAbout(AsyncWebServerRequest *request) {
- // Serial.println("Attempting to load /about.html");
   ESP_LOGV("WEB", "Attempting to load /about.html");
   if (LittleFS.exists("/about.html")) {
-     // Serial.println("/about.html found, sending...");
       ESP_LOGV("WEB", "/about.html found, sending...");
       request->send(LittleFS, "/about.html", "text/html");
   } else {
-     // Serial.println("/about.html not found");
       ESP_LOGE("WEB", "/about.html not found");
       request->send(404, "text/plain", "about.html not found");
   }
@@ -390,24 +395,20 @@ void handleRestartFromNextion() {
 }
 
 void resetNRF905() {
-  //Serial.println("Performing nRF905 reset...");
   ESP_LOGW("NRF905", "Performing nRF905 reset...");
   digitalWrite(NRF905_PWR_UP_PIN, LOW);  // Выключаем питание (пин LOW)
   vTaskDelay(200 / portTICK_PERIOD_MS);  // Задержка по datasheet
   digitalWrite(NRF905_PWR_UP_PIN, HIGH); // Включаем питание (пин HIGH)
-  //Serial.println("nRF905 reset complete.");
   ESP_LOGW("NRF905", "nRF905 reset complete.");
   vTaskDelay(100 / portTICK_PERIOD_MS);
    // Переинициализация и настройка модуля
   if (xSemaphoreTake(driverMutex, portMAX_DELAY) == pdTRUE) {
     if (driver.init()) {
-        //Serial.println("nRF905 reinitialized successfully.");
         ESP_LOGW("NRF905", "nRF905 reinitialized successfully.");
         driver.setChannel(175, false); // Канал 175 = 439.9 МГц
         driver.setRF(RH_NRF905::TransmitPowerm2dBm);
         // Другие необходимые настройки...
       } else {
-       // Serial.println("Failed to reinitialize nRF905.");
         ESP_LOGE("NRF905", "Failed to reinitialize nRF905.");
       }
     xSemaphoreGive(driverMutex);
@@ -417,7 +418,6 @@ void resetNRF905() {
 void resetI2CBus()
 {
   i2cResetCount++;
-  //Serial.println("Resetting I2C bus...");
   ESP_LOGE("SYS", "Resetting I2C bus...");
   pinMode(22, OUTPUT);
   pinMode(21, INPUT_PULLUP); // NACK-сигнал для датчиков
@@ -443,17 +443,14 @@ void resetI2CBus()
 
   if (!bme.begin(0x76))
   {
-    //Serial.println("Could not find a valid BME280 sensor, check wiring!");
     ESP_LOGE("INIT", "BME280 not detected. Please check wiring!");
   }
   if (!ens160.begin())
   {
-    //Serial.println("Could not find a valid ENS160 sensor, check wiring!");
     ESP_LOGE("INIT", "ENS160 not detected. Please check wiring!");
   }
   if (!aht20.begin())
   {
-    //Serial.println("Could not find a valid AHT20 sensor, check wiring!");
     ESP_LOGE("INIT", "AHT20 not detected. Please check wiring!");
   }
   vTaskDelay(100 / portTICK_PERIOD_MS);
@@ -530,9 +527,9 @@ void getBME280Status(char *buffer, size_t len) {
     xSemaphoreGive(i2cMutex);
   } else {
     snprintf(buffer, len, "Failed to acquire i2cMutex! From task - %s\n", pcTaskGetTaskName(NULL));
-    //Serial.print("Failed to acquire i2cMutex! From task - ");
-    //Serial.println(pcTaskGetTaskName(NULL));
-    ESP_LOGE("MUTEX", "Failed to acquire i2cMutex! From task - %s\n Mutex holder - s%", pcTaskGetTaskName(NULL), xSemaphoreGetMutexHolder(i2cMutex));
+    ESP_LOGE("MUTEX", "Failed to acquire i2cMutex! From task: %s | Mutex holder: %s", 
+      pcTaskGetTaskName(NULL), 
+      xSemaphoreGetMutexHolder(i2cMutex) ? pcTaskGetTaskName(xSemaphoreGetMutexHolder(i2cMutex)) : "None");
     resetI2CBus();
   }
 }
@@ -633,8 +630,6 @@ void handleSetNRF905(AsyncWebServerRequest *request) {
       bool band = (request->getParam("band", true)->value() == "true");
       String powerStr = request->getParam("power", true)->value();
 
-      // Serial.printf("Settings received: channel = %d, band = %s, power = %s\n",
-      //               channel, (band ? "hiband" : "lowband"), powerStr.c_str());
       ESP_LOGI("NRF905", "Settings received: channel = %d, band = %s, power = %s\n",
                     channel, (band ? "hiband" : "lowband"), powerStr.c_str());
 
@@ -806,7 +801,6 @@ void switchTaskInfluxDB() {
     vTaskSuspend(taskSendDataToInfluxDBHandle);
     sendDataToInfluxDBRunning = false;
     ESP_LOGD("SYS", "InfluxDB: Stopped");
-    // Serial.println("Отправка в базу данных: остановлена");
   } else {
     // Если задача неактивна - запускаем/возобновляем
     if (taskSendDataToInfluxDBHandle == NULL) {
@@ -818,11 +812,9 @@ void switchTaskInfluxDB() {
         6,
         &taskSendDataToInfluxDBHandle
       );
-      //Serial.println("Отправка в базу данных: created and running");
       ESP_LOGD("SYS", "InfluxDB: created and running");
     } else {
       vTaskResume(taskSendDataToInfluxDBHandle);
-      //Serial.println("Отправка в базу данных: возобновлёна");
       ESP_LOGD("SYS", "InfluxDB: resumed");
     }
     sendDataToInfluxDBRunning = true;
@@ -836,7 +828,6 @@ void switchTaskCO2Read() {
     mh19.end();
     vTaskSuspend(taskCO2ReadHandle);
     CO2ReadRunning = false;
-    //Serial.println("Чтение с датчика CO2: остановлено");
     ESP_LOGD("SYS", "CO2 Task: stopped");
   } else {
     mh19.begin(9600, SERIAL_8N1, RX1, TX1);
@@ -850,11 +841,9 @@ void switchTaskCO2Read() {
         3,
         &taskCO2ReadHandle
       );
-      //Serial.println("Чтение с датчика CO2: created and running");
       ESP_LOGD("SYS", "CO2 Task: created and running");
     } else {
       vTaskResume(taskCO2ReadHandle);
-      //Serial.println("Чтение с датчика CO2: возобновлёно");
       ESP_LOGD("SYS", "CO2 Task: resumed");
     }
     CO2ReadRunning = true;
@@ -867,7 +856,6 @@ void switchTaskNRF905() {
     // Если задача активна - останавливаем
     vTaskSuspend(taskNRF905Handle);
     nRF905Running = false;
-    //Serial.println("Прием с nRF905: остановлен");
     ESP_LOGD("SYS", "NRF905 Task: stopped");
   } else {
     // Если задача неактивна - запускаем/возобновляем
@@ -880,11 +868,9 @@ void switchTaskNRF905() {
         5,
         &taskNRF905Handle
       );
-      //Serial.println("Прием с nRF905: created and running");
       ESP_LOGD("SYS", "NRF905 Task: created and running");
     } else {
       vTaskResume(taskNRF905Handle);
-      //Serial.println("Прием с nRF905: возобновлён");
       ESP_LOGD("SYS", "NRF905 Task: resumed");
     }
     nRF905Running = true;
@@ -899,7 +885,6 @@ void switchTaskNextion() {
     vTaskDelay(200 / portTICK_PERIOD_MS);
     vTaskSuspend(processNextionTaskHandle);
     processNextionRunning = false;
-    //Serial.println("Обновление дисплея: остановлено");
     ESP_LOGD("SYS", "Nextion Task: stopped");
   } else {
     // Если задача неактивна - запускаем/возобновляем
@@ -912,12 +897,10 @@ void switchTaskNextion() {
         3,
         &processNextionTaskHandle
       );
-      //Serial.println("Обновление дисплея: created and running");
       ESP_LOGD("SYS", "Nextion Task: created and running");
     } else {
       vTaskResume(processNextionTaskHandle);
       nextionWakeUP();
-      //Serial.println("Обновление дисплея: возобновлёно");
       ESP_LOGD("SYS", "Nextion Task: resumed");
     }
     processNextionRunning = true;
@@ -930,7 +913,6 @@ void switchTaskBMP280() {
     // Если задача активна - останавливаем
     vTaskSuspend(taskBMP280Handle);
     BMP280Running = false;
-    //Serial.println("Чтение с BME280: остановлено");
     ESP_LOGD("SYS", "BME280 Task: stopped");
   } else {
     // Если задача неактивна - запускаем/возобновляем
@@ -943,11 +925,9 @@ void switchTaskBMP280() {
         4,
         &taskBMP280Handle
       );
-      //Serial.println("Чтение с BME280: created and running");
       ESP_LOGD("SYS", "BME280 Task: created and running");
     } else {
       vTaskResume(taskBMP280Handle);
-      //Serial.println("Чтение с BME280: возобновлёно");
       ESP_LOGD("SYS", "BME280 Task: resumed");
     }
     BMP280Running = true;
@@ -960,7 +940,6 @@ void switchTaskForecaster() {
     // Если задача активна - останавливаем
     vTaskSuspend(taskForecasterHandle);
     forecasterRunning = false;
-    //Serial.println("Forecast: stopped");
     ESP_LOGD("SYS", "Forecast Task: stopped");
   } else {
     // Если задача неактивна - запускаем/возобновляем
@@ -973,11 +952,9 @@ void switchTaskForecaster() {
         1,
         &taskForecasterHandle
       );
-      //Serial.println("Forecast: created and running");
       ESP_LOGD("SYS", "Forecast Task: created and running");
     } else {
       vTaskResume(taskForecasterHandle);
-      //Serial.println("Forecast: resumed");
       ESP_LOGD("SYS", "Forecast Task: resumed");
     }
     forecasterRunning = true;
@@ -990,7 +967,6 @@ void switchTaskNTP() {
     // Если задача активна - останавливаем
     vTaskSuspend(taskGetTimeHandle);
     getTimeRunning = false;
-    //Serial.println("NTP: stopped");
     ESP_LOGD("SYS", "NTP Task: stopped");
   } else {
     // Если задача неактивна - запускаем/возобновляем
@@ -1003,11 +979,9 @@ void switchTaskNTP() {
         2,
         &taskGetTimeHandle
       );
-      //Serial.println("NTP: created and running");
       ESP_LOGD("SYS", "NTP Task: created and running");
     } else {
       vTaskResume(taskGetTimeHandle);
-      //Serial.println("NTP: resumed");
       ESP_LOGD("SYS", "NTP Task: resumed");
     }
     getTimeRunning = true;
@@ -1020,25 +994,19 @@ void switchTaskTVOCRead() {
     // Если задача активна - останавливаем
     vTaskSuspend(taskTVOCReadHandle);
     TVOCReadRunning = false;
-    //Serial.println("TVOC reading: stopped");
     ESP_LOGD("SYS", "TVOC reading Task: stopped");
   } else {
     // Если задача неактивна - запускаем/возобновляем
     if (taskTVOCReadHandle == NULL) {
       if (!ens160.begin()) {
-        //Serial.println("Air Quality Sensor did not begin.");
         ESP_LOGE("INIT", "ENS160 not detected. Please check wiring!");
       } else {
-        //Serial.println("ENS160 detected");
-        ESP_LOGI("INIT", "ENS160 detected");
-  
+        ESP_LOGI("INIT", "ENS160 detected");  
       }
   
       if (!aht20.begin()) {
-        //Serial.println("AHT21 not detected. Please check wiring!.");
         ESP_LOGE("INIT", "AHT21 not detected. Please check wiring!");
       } else {
-        //Serial.println("AHT21 detected");
         ESP_LOGI("INIT", "AHT21 detected");
     }
       xTaskCreate(
@@ -1049,11 +1017,9 @@ void switchTaskTVOCRead() {
         2,
         &taskTVOCReadHandle
       );
-      //Serial.println("TVOC reading: created and running");
       ESP_LOGD("SYS", "TVOC reading Task: created and running");
     } else {
       vTaskResume(taskTVOCReadHandle);
-      //Serial.println("TVOC reading: resumed");
       ESP_LOGD("SYS", "TVOC reading Task: resumed");
     }
     TVOCReadRunning = true;
@@ -1070,7 +1036,6 @@ void handleTaskControl(AsyncWebServerRequest *request) {
 
   // Получаем значение параметра "task" из тела запроса
   String task = request->getParam("task", true)->value();
-  //Serial.printf("Получен запрос на переключение задачи: %s\n", task.c_str());
   ESP_LOGD("SYS", "Task switch request received: %s\n", task.c_str());
 
   // Выбор задачи для переключения
@@ -1149,7 +1114,6 @@ void taskNRF905(void *pvParameters)
     // Проверяем, прошло ли больше 10 минут без получения данных
     if ((millis() - lastReceived) >= 600000)  // 600000 мс = 10 минут
     {
-      //Serial.println("No data available for more than 10 minutes. Resetting nRF905...");
       ESP_LOGE("NRF905", "No data available for more than 10 minutes. Resetting nRF905...");
       resetNRF905();  // Вызываем функцию сброса nRF905
       // Обновляем lastReceived, чтобы не вызывать сброс повторно сразу же
@@ -1175,9 +1139,9 @@ void taskBMP280(void *pvParameters)
     else
     {
       // Ошибка: превышено время ожидания мьютекса
-      //Serial.println("Failed to acquire i2cMutex! From task - ");
-      //Serial.println(pcTaskGetTaskName(NULL));
-      ESP_LOGE("MUTEX", "Failed to acquire i2cMutex! From task - %s\n Mutex holder - s%", pcTaskGetTaskName(NULL), xSemaphoreGetMutexHolder(i2cMutex));
+      ESP_LOGE("MUTEX", "Failed to acquire i2cMutex! From task: %s | Mutex holder: %s", 
+        pcTaskGetTaskName(NULL), 
+        xSemaphoreGetMutexHolder(i2cMutex) ? pcTaskGetTaskName(xSemaphoreGetMutexHolder(i2cMutex)) : "None");
       resetI2CBus();
     }
 
@@ -1208,7 +1172,6 @@ void taskGetTime(void *pvParameters)
     }
     else
     {
-      //Serial.println("Failed to get time via NTP.");
       ESP_LOGE("NTP", "Failed to get time via NTP.");
     }
 
@@ -1222,7 +1185,7 @@ void taskForecast(void *pvParameters) {
   for (;;) {
     int month = getMonth();
     if (month != -1) {
-      ESP_LOGD("FORECAST", "Sending month to forecast: i%", month);
+      ESP_LOGD("FORECAST", "Sending month to forecast: %i", month);
       cond.setMonth(month);  // Устанавливаем текущий месяц в Forecaster
     }
     int p = pressure * 100;
@@ -1232,14 +1195,9 @@ void taskForecast(void *pvParameters) {
     } else  {
       vTaskDelay((5000) / portTICK_PERIOD_MS);
     }
-    //Serial.print("Parameters sent to forecast: ");
-    //Serial.println(p);
     ESP_LOGD("FORECAST", "Parameters sent to forecast: %i Pa", p);
     forecast = cond.getCast();
     trend = cond.getTrend() / 100.0f;
-    // Serial.print("Barometric tendence: ");
-    // Serial.print(trend);
-    // Serial.println(" hPa");
     ESP_LOGD("FORECAST", "Barometric trend: %f hPa\n Forecast: %f", trend, forecast);
 
     vTaskDelay((30 * 60 * 1000) / portTICK_PERIOD_MS);  // 30 минут задержки
@@ -1364,31 +1322,25 @@ void processNextionMessageBinary(const uint8_t* msg, size_t len) {
         currentPage = "unknown";
         break;
     }
-    //Serial.print("Page changed: ");
-    //Serial.println(currentPage);
-    ESP_LOGV("NEXTION", "Page changed: s%", currentPage);
+    ESP_LOGV("NEXTION", "Page changed: %s", currentPage);
   }
   else if (msg[0] == 0x65) {
     // Событие от компонента
     // Формат: 65, <PageID>, <ComponentID>, <EventValue>, FF, FF, FF
     uint8_t compID = msg[2];
     if (compID == 0x03) {
-      //Serial.println("Button pressed: b2");
       ESP_LOGV("NEXTION", "Button pressed: b2");
       handleRestartFromNextion();
     }
     else if (compID == 0x04) {
-      //Serial.println("Button pressed: b3");
       ESP_LOGV("NEXTION", "Button pressed: b3");
       resetNRF905();
     }
     else if (compID == 0x05)  {
-      //Serial.println("Button pressed: b4");
       ESP_LOGV("NEXTION", "Button pressed: b4");
       ESP.restart();
     }
     else if (compID == 0x07) {
-      //Serial.println("Button pressed: bt1");
       ESP_LOGV("NEXTION", "Button pressed: bt1");
       // Переключаем веб-сервер
       switchTaskNRF905();
@@ -1396,7 +1348,6 @@ void processNextionMessageBinary(const uint8_t* msg, size_t len) {
       syncButtonState(1, taskNRF905Handle);
     }
     else if (compID == 0x08) {
-      //Serial.println("Button pressed: bt2");
       ESP_LOGV("NEXTION", "Button pressed: bt2");
       // Переключаем веб-сервер
       switchTaskCO2Read();
@@ -1404,7 +1355,6 @@ void processNextionMessageBinary(const uint8_t* msg, size_t len) {
       syncButtonState(2, taskCO2ReadHandle);
     }
     else if (compID == 0x09) {
-      //Serial.println("Button pressed: bt3");
       ESP_LOGV("NEXTION", "Button pressed: bt3");
       // Переключаем веб-сервер
       switchTaskNextion();
@@ -1412,7 +1362,6 @@ void processNextionMessageBinary(const uint8_t* msg, size_t len) {
       syncButtonState(3, processNextionTaskHandle);
     }
     else if (compID == 0x0A) {
-      //Serial.println("Button pressed: bt4");
       ESP_LOGV("NEXTION", "Button pressed: bt4");
       // Переключаем веб-сервер
       switchTaskBMP280();
@@ -1420,7 +1369,6 @@ void processNextionMessageBinary(const uint8_t* msg, size_t len) {
       syncButtonState(4, taskBMP280Handle);
     }
     else if (compID == 0x0B) {
-      //Serial.println("Button pressed: bt5");
       ESP_LOGV("NEXTION", "Button pressed: bt5");
       // Переключаем веб-сервер
       switchTaskInfluxDB();
@@ -1428,7 +1376,6 @@ void processNextionMessageBinary(const uint8_t* msg, size_t len) {
       syncButtonState(5, taskSendDataToInfluxDBHandle);
     }
     else if (compID == 0x0C) {
-      //Serial.println("Button pressed: bt6");
       ESP_LOGV("NEXTION", "Button pressed: bt6");
       // Переключаем веб-сервер
       switchTaskForecaster();
@@ -1436,7 +1383,6 @@ void processNextionMessageBinary(const uint8_t* msg, size_t len) {
       syncButtonState(6, taskForecasterHandle);
     }
     else if (compID == 0x0D) {
-      //Serial.println("Button pressed: bt7");
       ESP_LOGV("NEXTION", "Button pressed: bt7");
       // Переключаем веб-сервер
       switchTaskNTP();
@@ -1513,24 +1459,19 @@ void taskCO2Read(void *pvParameters) {
 
       if (response[8] == checksum) {
         ppm = (256 * response[2]) + response[3];
-        //Serial.printf("CO2: %d ppm\n", ppm);
         ESP_LOGV("SENSORS", "CO2: %d ppm\n", ppm);
         errorCount = 0; // Сброс ошибок при успехе
       } else {
         errorCount++;
-        //Serial.printf("MH-Z1911A CRC Error! Counter: %d/%d\n", errorCount, MAX_ERRORS);
         ESP_LOGE("SENSORS", "Read error from MH-Z1911A! Counter: %d/%d\n", errorCount, MAX_ERRORS);
       }
     } else {
       errorCount++;
-      //Serial.printf("Read error from MH-Z1911A! Counter: %d/%d\n", errorCount, MAX_ERRORS);
       ESP_LOGE("SENSORS", "MH-Z1911A CRC Error! Counter: %d/%d\n", errorCount, MAX_ERRORS);
     }
 
     // Проверка на превышение ошибок
     if (errorCount >= MAX_ERRORS) {
-      //Serial.print("The sensor MH-Z1911A is not connected");
-      //Serial.println("Deleting the reading task from the sensor MH-Z1911A...");
       ESP_LOGE("SYS", "The sensor MH-Z1911A is not connected. Deleting taskCO2Read");
       mh19.end();
       taskCO2ReadHandle = NULL;
@@ -1564,14 +1505,12 @@ void taskTVOCRead(void *pvParameters)
                 AQI = ens160.getAQI();
                 TVOC = ens160.getTVOC();
                 ECO2 = ens160.getECO2();
-                //Serial.printf("AQI: %d\tTVOC: %d ppb\tCO2: %d ppm\n", AQI, TVOC, ECO2);
                 ESP_LOGV("SENSORS", "AQI: %d\tTVOC: %d ppb\tCO2: %d ppm\n", AQI, TVOC, ECO2);
                 ens160ErrorCount = 0;
             }
             else
             {
                 ens160ErrorCount++;
-                //Serial.printf("Error ENS160! Attempt %d of %d\n", ens160ErrorCount, MAX_ERRORS);
                 ESP_LOGE("SENSORS", "Error ENS160! Attempt %d of %d\n", ens160ErrorCount, MAX_ERRORS);
             }
 
@@ -1585,7 +1524,6 @@ void taskTVOCRead(void *pvParameters)
             else
             {
                 aht21ErrorCount++;
-                //Serial.printf("Error AHT20! Attempt %d of %d\n", aht21ErrorCount, MAX_ERRORS);
                 ESP_LOGE("SENSORS", "Error AHT20! Attempt %d of %d\n", aht21ErrorCount, MAX_ERRORS);
             }
 
@@ -1593,16 +1531,15 @@ void taskTVOCRead(void *pvParameters)
         }
         else
         {
-            //Serial.println("Failed to acquire i2cMutex! From task - ");
-            //Serial.println(pcTaskGetTaskName(NULL));
-            ESP_LOGE("MUTEX", "Failed to acquire i2cMutex! From task - %s\n Mutex holder - s%", pcTaskGetTaskName(NULL), xSemaphoreGetMutexHolder(i2cMutex));
+            ESP_LOGE("MUTEX", "Failed to acquire i2cMutex! From task: %s | Mutex holder: %s", 
+              pcTaskGetTaskName(NULL), 
+              xSemaphoreGetMutexHolder(i2cMutex) ? pcTaskGetTaskName(xSemaphoreGetMutexHolder(i2cMutex)) : "None");
             resetI2CBus();
         }
 
         // Удаление задачи при превышении ошибок
         if (ens160ErrorCount >= MAX_ERRORS || aht21ErrorCount >= MAX_ERRORS)
         {
-            //Serial.println("Sensors not responding. Deleting taskTVOCRead...");
             ESP_LOGE("SYS", "Sensors ENS160 and AHT21 not responding. Deleting taskTVOCRead...");
             xSemaphoreGive(i2cMutex);
             taskTVOCReadHandle = NULL;
@@ -1618,7 +1555,6 @@ void taskTVOCRead(void *pvParameters)
             {
                 ens160.setTempCompensationCelsius(tempAHT);
                 ens160.setRHCompensationFloat(rH);
-                //Serial.printf("Setting temperature and humidity calibration values:\nTemperature: %.2f °C, Humidity: %.2f %%\n", tempAHT, rH);
                 ESP_LOGI("SENSORS", "Setting temperature and humidity calibration values:\nTemperature: %.2f °C, Humidity: %.2f %%\n", tempAHT, rH);
                 xSemaphoreGive(i2cMutex);
                 lastCompensationTime = millis();
@@ -1626,9 +1562,9 @@ void taskTVOCRead(void *pvParameters)
             }
             else
             {
-                //Serial.println("Failed to acquire i2cMutex! From task - ");
-                //Serial.println(pcTaskGetTaskName(NULL));
-                ESP_LOGE("MUTEX", "Failed to acquire i2cMutex! From task - %s\n Mutex holder - s%", pcTaskGetTaskName(NULL), xSemaphoreGetMutexHolder(i2cMutex));
+                ESP_LOGE("MUTEX", "Failed to acquire i2cMutex! From task: %s | Mutex holder: %s", 
+                  pcTaskGetTaskName(NULL), 
+                  xSemaphoreGetMutexHolder(i2cMutex) ? pcTaskGetTaskName(xSemaphoreGetMutexHolder(i2cMutex)) : "None");
                 resetI2CBus();
             }
         }
@@ -1637,26 +1573,61 @@ void taskTVOCRead(void *pvParameters)
     }
 }
 
+void wifi_timer_callback(TimerHandle_t xTimer) {
+  if(WiFi.status() != WL_CONNECTED) {
+    ESP_LOGE("WIFI", "WiFi couldn't connect! Rebooting...");
+    ESP.restart();
+  }
+}
+
+void wifi_monitor_task(void* pvParams) {
+  wifiTimer = xTimerCreate("WiFiTimer", pdMS_TO_TICKS(900000), pdFALSE, 0, wifi_timer_callback);
+  ESP_LOGI("WIFI", "WiFiTimer created and set to 15 min");
+  
+  WiFi.onEvent([](WiFiEvent_t event) {
+    if(event == ARDUINO_EVENT_WIFI_STA_DISCONNECTED) {
+      xTimerReset(wifiTimer, 0); // Перезапуск таймера при отключении
+      ESP_LOGW("WIFI", "WiFi disconnected! Timer reset");
+    }
+  });
+
+  while(1) {
+    if(WiFi.status() != WL_CONNECTED && !xTimerIsTimerActive(wifiTimer)) {
+      xTimerStart(wifiTimer, 0);
+      ESP_LOGI("WIFI", "WiFi connected! Timer start");
+    }
+    vTaskDelay(pdMS_TO_TICKS(10000));
+  }
+}
+
+void memory_task(void* pvParams) {
+  while(1) {
+    ESP_LOGD("MEM", "Free: %6d | Min Free Block: %6d | Frag: %.2f%%\n", 
+                  ESP.getFreeHeap(), 
+                  heap_caps_get_largest_free_block(MALLOC_CAP_8BIT),
+                  (100.0f - (heap_caps_get_largest_free_block(MALLOC_CAP_8BIT) * 100.0f) / ESP.getFreeHeap()));
+    vTaskDelay(pdMS_TO_TICKS(30000)); // Каждые 30 сек
+  }
+}
 
 
 // ----------------------------- Setup -----------------------------
 void setup()
 {
   Serial.begin(115200);
+  Serial.setDebugOutput(true);
   esp_log_level_set("*", ESP_LOG_VERBOSE);
+  ESP_LOGI("TEST", "ESP_LOG is working!");
   nextion.begin(115200, SERIAL_8N1, RX2, TX2); // Инициализация Serial2  
-  //Serial.println("ESP32 + Nextion Initialized");
   ESP_LOGI("INIT", "ESP32 + Nextion Initialized");
 
 
   // Настройка пина для управления PWR_UP nRF905
   pinMode(NRF905_PWR_UP_PIN, OUTPUT);
   digitalWrite(NRF905_PWR_UP_PIN, HIGH);  // В нормальном режиме модуль должен получать питание (HIGH)
-  //Serial.println("Powering on nRF905...");
   ESP_LOGI("INIT", "Powering on nRF905...");
 
   SPI.begin(NRF905_SPI_SCK, NRF905_SPI_MISO, NRF_SPI_MOSI);
-  //Serial.println("SPI Initialized");
   ESP_LOGI("INIT", "SPI Initialized");
 
 
@@ -1673,16 +1644,15 @@ void setup()
   WiFi.begin(ssid, password);
   WiFi.setAutoReconnect(true);
   WiFi.persistent(true);
-  while (WiFi.status() != WL_CONNECTED)
+  if (WiFi.status() != WL_CONNECTED)
   {
+    esp_wifi_set_ps(WIFI_PS_NONE);
+    ESP_LOGI("WIFI", "Power saving mode: OFF");
     delay(1000);
-    //Serial.println("Connecting to Wi-Fi...");
-    ESP_LOGI("INIT", "Connecting to Wi-Fi...");
+    ESP_LOGI("WIFI", "Connecting to Wi-Fi...");
   }
-  //Serial.println("Wi-Fi connected!");
-  //Serial.println(WiFi.localIP());
-  ESP_LOGI("INIT", "Wi-Fi connected!");
-  ESP_LOGI("INIT", "Local IP: " IPSTR, IP2STR(&WiFi.localIP()));
+  ESP_LOGI("WIFI", "Wi-Fi connected!");
+  ESP_LOGI("WIFI", "Local IP: %s", WiFi.localIP().toString().c_str());
 
   // Настройка сервера
   server.serveStatic("/", LittleFS, "/");
@@ -1721,49 +1691,40 @@ void setup()
   webSocket1.onEvent(onWsEvent1);
 
   webServerRunning = true;
-  Serial.setDebugOutput(false);
+  //Serial.setDebugOutput(true);
 
   nextionRestart();
 
   // Инициализация радиомодуля
   if (!driver.init())
   {
-    //Serial.println("Failed initialize nRF905!");
     ESP_LOGE("INIT", "Failed initialize nRF905!");
   } else {
-    //Serial.println("nRF905 initialized");
     ESP_LOGI("INIT", "nRF905 initialized");
   }
 
   // Настройка канала и диапазона
   driver.setChannel(175, false); // Канал 175 = 439.9 МГц
   driver.setRF(RH_NRF905::TransmitPower10dBm);
-  //Serial.println("nRF905 configured and ready!");
   ESP_LOGI("INIT", "nRF905 configured and ready!");
 
 
   // Инициализация датчиков i2c
   if (!bme.begin(0x76)) {
-      //Serial.println("BME280 not detected. Please check wiring!");
       ESP_LOGE("INIT", "BME280 not detected. Please check wiring!");
     } else {
-      //Serial.println("BME280 detected");
       ESP_LOGI("INIT", "BME280 detected");
   }
 
   if (!ens160.begin()) {
-      //Serial.println("ENS160 not detected. Please check wiring!");
       ESP_LOGE("INIT", "ENS160 not detected. Please check wiring!");
     } else {
-      //Serial.println("ENS160 detected");
       ESP_LOGI("INIT", "ENS160 detected");
   }
 
   if (!aht20.begin()) {
-    //Serial.println("AHT21 not detected. Please check wiring!.");
     ESP_LOGE("INIT", "AHT21 not detected. Please check wiring!");
   } else {
-    //Serial.println("AHT21 detected");
     ESP_LOGI("INIT", "AHT21 detected");
   }
 
@@ -1785,13 +1746,11 @@ void setup()
   // Создание мьютексов
   i2cMutex = xSemaphoreCreateMutex();
     if (i2cMutex == NULL) {
-    //Serial.println("Failed to create mutex for i2c!");
     ESP_LOGE("MUTEX", "Failed to create mutex for i2c!");
   }
 
   driverMutex = xSemaphoreCreateMutex();
     if (driverMutex == NULL) {
-    //Serial.println("Failed to create mutex for nRF905!");
     ESP_LOGE("MUTEX", "Failed to create mutex for nRF905!");
   }
 
@@ -1805,10 +1764,12 @@ void setup()
   xTaskCreate(taskSendDataToInfluxDB, "InfluxDBTask", 4096, NULL, 6, &taskSendDataToInfluxDBHandle);
   xTaskCreate(taskForecast, "Forecast task", 2048, NULL, 1, &taskForecasterHandle);
   xTaskCreate(processNextionTask, "Nextion", 4096, NULL, 3, &processNextionTaskHandle);
+  xTaskCreate(memory_task, "Memory Monitor", 4096, NULL, 1, NULL);
+  xTaskCreate(wifi_monitor_task, "WiFiMonitor", 2048, NULL, 2, NULL);
 }
 
 // ----------------------------- Main loop -----------------------------
 void loop()
 {
-  // Основной цикл пустой, так как задачи обрабатываются в FreeRTOS
+  vTaskDelete(NULL);
 }
