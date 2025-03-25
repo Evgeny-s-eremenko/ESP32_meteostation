@@ -20,6 +20,7 @@
 
 
 
+
 // ----------------------------- Wi-Fi и сервер -----------------------------
 const char *ssid = "REMOVED";
 const char *password = "REMOVED";
@@ -128,6 +129,7 @@ void processNextionTask();
 void handleGraphData();
 void handleRoot();
 void nextionRestart();
+void reconnectWiFi();
 void processNextionTask(void *pvParameters);
 void taskForecast(void *pvParameters);
 void taskCO2Read(void *pvParameters);
@@ -160,6 +162,15 @@ double sunsetTime;
 // Переменная для хранения текущей страницы Nextion
 String currentPage = "page0";
 
+// Параметры попыток
+const uint8_t MAX_ATTEMPTS_PER_CYCLE = 3;
+const uint8_t MAX_CYCLES = 3;  // всего циклов попыток
+const uint32_t SHORT_COOLDOWN = 30000;   // 30 секунд между попытками в одном цикле
+const uint32_t LONG_COOLDOWN  = 300000;   // 5 минут между циклами
+
+// Глобальные переменные
+uint8_t wifi_attempts = 0;  // суммарное число попыток (максимум 9)
+uint32_t last_reconnect_time = 0;
 
 // -------------------------- Функция расчета точки росы -----------------------------
 float calculateDewPoint(float temperature, float humidity)
@@ -1590,42 +1601,114 @@ void taskTVOCRead(void *pvParameters)
     }
 }
 
+void reconnectWiFi() {
+  uint32_t currentCooldown = SHORT_COOLDOWN;
+  // Если предыдущая попытка была последней в цикле (3-я, 6-я, 9-я), установить длительный перерыв
+  if (wifi_attempts > 0 && (wifi_attempts % MAX_ATTEMPTS_PER_CYCLE) == 0) {
+    currentCooldown = LONG_COOLDOWN;
+  }
+  
+  // Если не прошло нужное время, выходим
+  if(last_reconnect_time != 0 && (millis() - last_reconnect_time < currentCooldown)) {
+    return;
+  }
+  
+  wifi_attempts++;
+  last_reconnect_time = millis();
+  
+  ESP_LOGW("WIFI", "Reconnect attempt %d/%d", wifi_attempts, MAX_ATTEMPTS_PER_CYCLE * MAX_CYCLES);
+  
+  WiFi.disconnect(true);
+  vTaskDelay(pdMS_TO_TICKS(100));
+  WiFi.begin(ssid, password);
+  WiFi.setAutoReconnect(false);
+  WiFi.persistent(false);
+  WiFi.config(
+    IPAddress(192,168,1,230),  // static IP (опционально)
+    IPAddress(192,168,1,254),     // gateway
+    IPAddress(255,255,255,0),   // subnet
+    IPAddress(192,168,1,254)          // DNS (опционально)
+  );
+  esp_wifi_set_ps(WIFI_PS_NONE);
+  
+  uint32_t start = millis();
+  // Ждём до 20 сек для подключения
+  while(WiFi.status() != WL_CONNECTED && millis() - start < 20000) {
+    vTaskDelay(pdMS_TO_TICKS(100));
+  }
+  
+  if(WiFi.status() == WL_CONNECTED) {
+    // Сброс попыток при успешном подключении
+    wifi_attempts = 0;
+    ESP_LOGI("WIFI", "Successfully reconnected! RSSI: %d", WiFi.RSSI());
+  }
+}
+
 void wifi_timer_callback(TimerHandle_t xTimer) {
+  // Если ещё не подключены
   if(WiFi.status() != WL_CONNECTED) {
-    ESP_LOGE("WIFI", "WiFi couldn't connect! Rebooting...");
-    ESP.restart();
+    if(wifi_attempts < MAX_ATTEMPTS_PER_CYCLE * MAX_CYCLES) {
+      reconnectWiFi();
+      
+      // Перезапускаем таймер с нужным интервалом
+      uint32_t nextInterval = SHORT_COOLDOWN;
+      if (wifi_attempts > 0 && (wifi_attempts % MAX_ATTEMPTS_PER_CYCLE) == 0) {
+        nextInterval = LONG_COOLDOWN;
+      }
+      xTimerChangePeriod(wifiTimer, pdMS_TO_TICKS(nextInterval), 0);
+      xTimerStart(wifiTimer, 0);
+    } else {
+      ESP_LOGE("WIFI", "Critical WiFi failure after %d attempts! Rebooting...", wifi_attempts);
+      ESP.restart();
+    }
   }
 }
 
 void wifi_monitor_task(void* pvParams) {
-  wifiTimer = xTimerCreate("WiFiTimer", pdMS_TO_TICKS(900000), pdFALSE, 0, wifi_timer_callback);
-  ESP_LOGI("WIFI", "WiFiTimer created and set to 15 min");
+  // Изначально таймер с коротким интервалом (30 секунд)
+  wifiTimer = xTimerCreate("WiFiTimer", pdMS_TO_TICKS(SHORT_COOLDOWN), pdFALSE, 0, wifi_timer_callback);
   
-  WiFi.onEvent([](WiFiEvent_t event) {
-    if(event == ARDUINO_EVENT_WIFI_STA_DISCONNECTED) {
-      xTimerReset(wifiTimer, 0); // Перезапуск таймера при отключении
-      ESP_LOGW("WIFI", "WiFi disconnected! Timer reset");
+  // Подписываемся на события Wi‑Fi
+  WiFi.onEvent([](WiFiEvent_t event, WiFiEventInfo_t info) {
+    switch(event) {
+      case ARDUINO_EVENT_WIFI_STA_DISCONNECTED:
+        ESP_LOGW("WIFI", "Disconnected!");
+        last_reconnect_time = 0;
+        if(!xTimerIsTimerActive(wifiTimer)) {
+          // Сбросим время перед новым циклом попыток
+          
+          xTimerStart(wifiTimer, 0);
+        }
+        break;
+      case ARDUINO_EVENT_WIFI_STA_GOT_IP:
+        xTimerStop(wifiTimer, 0);
+        wifi_attempts = 0;  // сброс при получении IP
+        ESP_LOGI("WIFI", "Obtained IP: %s", WiFi.localIP().toString().c_str());
+        break;
+      default:
+        break;
     }
   });
 
+  // Основной цикл мониторинга
   while(1) {
     if(WiFi.status() != WL_CONNECTED && !xTimerIsTimerActive(wifiTimer)) {
+      // Если таймер не активен, запустим его
       xTimerStart(wifiTimer, 0);
-      ESP_LOGI("WIFI", "WiFi connected! Timer start");
     }
     vTaskDelay(pdMS_TO_TICKS(10000));
   }
 }
 
-// void memory_task(void* pvParams) {
-//   while(1) {
-//     ESP_LOGD("MEM", "Free: %6d | Min Free Block: %6d | Frag: %.2f%%\n", 
-//                   ESP.getFreeHeap(), 
-//                   heap_caps_get_largest_free_block(MALLOC_CAP_8BIT),
-//                   (100.0f - (heap_caps_get_largest_free_block(MALLOC_CAP_8BIT) * 100.0f) / ESP.getFreeHeap()));
-//     vTaskDelay(pdMS_TO_TICKS(30000)); // Каждые 30 сек
-//   }
-// }
+void memory_task(void* pvParams) {
+  while(1) {
+    ESP_LOGD("MEM", "Free: %6d | Min Free Block: %6d | Frag: %.2f%%\n", 
+                  ESP.getFreeHeap(), 
+                  heap_caps_get_largest_free_block(MALLOC_CAP_8BIT),
+                  (100.0f - (heap_caps_get_largest_free_block(MALLOC_CAP_8BIT) * 100.0f) / ESP.getFreeHeap()));
+    vTaskDelay(pdMS_TO_TICKS(30000)); // Каждые 30 сек
+  }
+}
 
 
 // ----------------------------- Setup -----------------------------
@@ -1659,8 +1742,15 @@ void setup()
 
   // Подключение к Wi-Fi
   WiFi.begin(ssid, password);
-  WiFi.setAutoReconnect(true);
-  WiFi.persistent(true);
+  WiFi.setAutoReconnect(false);
+  WiFi.persistent(false);
+  WiFi.config(
+    IPAddress(192,168,1,230),  // static IP (опционально)
+    IPAddress(192,168,1,254),     // gateway
+    IPAddress(255,255,255,0),   // subnet
+    IPAddress(192,168,1,254)          // DNS (опционально)
+  );
+
   if (WiFi.status() != WL_CONNECTED)
   {
     esp_wifi_set_ps(WIFI_PS_NONE);
@@ -1781,7 +1871,7 @@ void setup()
   xTaskCreate(taskSendDataToInfluxDB, "InfluxDBTask", 4096, NULL, 6, &taskSendDataToInfluxDBHandle);
   xTaskCreate(taskForecast, "Forecast task", 2048, NULL, 1, &taskForecasterHandle);
   xTaskCreate(processNextionTask, "Nextion", 4096, NULL, 3, &processNextionTaskHandle);
-  //xTaskCreate(memory_task, "Memory Monitor", 4096, NULL, 1, NULL);
+  xTaskCreate(memory_task, "Memory Monitor", 4096, NULL, 1, NULL);
   xTaskCreate(wifi_monitor_task, "WiFiMonitor", 2048, NULL, 2, NULL);
 }
 
