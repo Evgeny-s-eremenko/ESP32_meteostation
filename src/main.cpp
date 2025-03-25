@@ -1617,15 +1617,15 @@ void wifi_monitor_task(void* pvParams) {
   }
 }
 
-void memory_task(void* pvParams) {
-  while(1) {
-    ESP_LOGD("MEM", "Free: %6d | Min Free Block: %6d | Frag: %.2f%%\n", 
-                  ESP.getFreeHeap(), 
-                  heap_caps_get_largest_free_block(MALLOC_CAP_8BIT),
-                  (100.0f - (heap_caps_get_largest_free_block(MALLOC_CAP_8BIT) * 100.0f) / ESP.getFreeHeap()));
-    vTaskDelay(pdMS_TO_TICKS(30000)); // Каждые 30 сек
-  }
-}
+// void memory_task(void* pvParams) {
+//   while(1) {
+//     ESP_LOGD("MEM", "Free: %6d | Min Free Block: %6d | Frag: %.2f%%\n", 
+//                   ESP.getFreeHeap(), 
+//                   heap_caps_get_largest_free_block(MALLOC_CAP_8BIT),
+//                   (100.0f - (heap_caps_get_largest_free_block(MALLOC_CAP_8BIT) * 100.0f) / ESP.getFreeHeap()));
+//     vTaskDelay(pdMS_TO_TICKS(30000)); // Каждые 30 сек
+//   }
+// }
 
 
 // ----------------------------- Setup -----------------------------
@@ -1781,7 +1781,7 @@ void setup()
   xTaskCreate(taskSendDataToInfluxDB, "InfluxDBTask", 4096, NULL, 6, &taskSendDataToInfluxDBHandle);
   xTaskCreate(taskForecast, "Forecast task", 2048, NULL, 1, &taskForecasterHandle);
   xTaskCreate(processNextionTask, "Nextion", 4096, NULL, 3, &processNextionTaskHandle);
-  xTaskCreate(memory_task, "Memory Monitor", 4096, NULL, 1, NULL);
+  //xTaskCreate(memory_task, "Memory Monitor", 4096, NULL, 1, NULL);
   xTaskCreate(wifi_monitor_task, "WiFiMonitor", 2048, NULL, 2, NULL);
 }
 
