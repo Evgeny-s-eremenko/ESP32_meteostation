@@ -649,94 +649,111 @@ void handleSetNRF905(AsyncWebServerRequest *request) {
 // Функция для отправки данных в InfluxDB (без аргументов)
 void sendDataToInfluxDB()
 {
-  WiFiClient client;
-  HTTPClient http;
+    WiFiClient client;
+    HTTPClient http;
 
-  // Формируем строку InfluxDB Line Protocol
-  String influxDBLine = "weather,location=home ";
+    char influxDBLine[256];
+    int offset = snprintf(influxDBLine, sizeof(influxDBLine), "weather,location=home ");
+
     if (temperature != 0.0f)
     {
-      influxDBLine += "temperature=" + String(temperature, 2) + ",";
+        offset += snprintf(influxDBLine + offset, sizeof(influxDBLine) - offset, "temperature=%.2f,", temperature);
     }
 
     if (humidity != 0.0f)
     {
-      influxDBLine += "humidity=" + String(humidity, 2) + ",";
+        offset += snprintf(influxDBLine + offset, sizeof(influxDBLine) - offset, "humidity=%.2f,", humidity);
     }
 
     if (dewPoint != 0.0f)
     {
-      influxDBLine += "dewPoint=" + String(dewPoint, 2) + ",";
+        offset += snprintf(influxDBLine + offset, sizeof(influxDBLine) - offset, "dewPoint=%.2f,", dewPoint);
     }
 
     if (pressure != 0.0f)
     {
-      influxDBLine += "pressure=" + String(pressure, 2) + ",";
-    }
-    
-    if (forecast >= 0)
-    {
-      influxDBLine += "forecast=" + String(forecast, 2) + ",";
+        offset += snprintf(influxDBLine + offset, sizeof(influxDBLine) - offset, "pressure=%.2f,", pressure);
     }
 
-    if (trend >= -30 && trend <= 30) 
+    if (forecast >= 0)
     {
-      influxDBLine += "trend=" + String(trend, 2) + ",";
+        offset += snprintf(influxDBLine + offset, sizeof(influxDBLine) - offset, "forecast=%.2f,", forecast);
     }
-    else influxDBLine += "trend=" + String(0, 2) + ",";
+
+    if (trend >= -30 && trend <= 30)
+    {
+        offset += snprintf(influxDBLine + offset, sizeof(influxDBLine) - offset, "trend=%.2f,", trend);
+    }
+    else
+    {
+        offset += snprintf(influxDBLine + offset, sizeof(influxDBLine) - offset, "trend=%.2f,", 0.0f);
+    }
 
     if (homeTemp != 0.0f)
     {
-      influxDBLine += "homeTemp=" + String(homeTemp, 2) + ",";
+        offset += snprintf(influxDBLine + offset, sizeof(influxDBLine) - offset, "homeTemp=%.2f,", homeTemp);
     }
 
     if (homeHum != 0.0f)
     {
-      influxDBLine += "homeHum=" + String(homeHum, 2) + ",";
+        offset += snprintf(influxDBLine + offset, sizeof(influxDBLine) - offset, "homeHum=%.2f,", homeHum);
     }
 
     if (homeDP != 0.0f)
     {
-      influxDBLine += "homeDP=" + String(homeDP, 2) + ",";
+        offset += snprintf(influxDBLine + offset, sizeof(influxDBLine) - offset, "homeDP=%.2f,", homeDP);
     }
 
     if (ppm != 0)
     {
-      influxDBLine += "CO2=" + String(ppm) + ",";
+        offset += snprintf(influxDBLine + offset, sizeof(influxDBLine) - offset, "CO2=%d,", ppm);
     }
 
     if (TVOC != -1)
     {
-      influxDBLine += "TVOC=" + String(TVOC) + ",";
+        offset += snprintf(influxDBLine + offset, sizeof(influxDBLine) - offset, "TVOC=%d,", TVOC);
     }
 
     if (AQI != -1)
     {
-      influxDBLine += "AQI=" + String(AQI) + ",";
+        offset += snprintf(influxDBLine + offset, sizeof(influxDBLine) - offset, "AQI=%d,", AQI);
     }
 
     if (ECO2 != -1)
     {
-      influxDBLine += "ECO2=" + String(ECO2);
+        offset += snprintf(influxDBLine + offset, sizeof(influxDBLine) - offset, "ECO2=%d", ECO2);
     }
-  String url = "http://" + String(influxDBHost) + ":" + String(influxDBPort) + "/write?db=" + String(influxDBDatabase);
 
-  http.begin(client, url);
-  http.addHeader("Content-Type", "application/x-www-form-urlencoded");
-
-  int httpResponseCode = http.POST(influxDBLine);
-
-  if (httpResponseCode > 0) {
-    ESP_LOGI("InfluxDB", "HTTP Response code: %d", httpResponseCode);
-    if (httpResponseCode != 204) {
-        ESP_LOGD("InfluxDB", "Server response: %s", http.getString().c_str()); // Логируем ответ сервера на уровне DEBUG
+    // Убираем последнюю запятую, если она есть
+    if (influxDBLine[offset - 1] == ',')
+    {
+        influxDBLine[offset - 1] = '\0';
     }
-} else {
-    ESP_LOGE("InfluxDB", "Error sending data to InfluxDB: %s", http.errorToString(httpResponseCode).c_str());
+
+    char url[128];
+    snprintf(url, sizeof(url), "http://%s:%d/write?db=%s", influxDBHost, influxDBPort, influxDBDatabase);
+
+    http.begin(client, url);
+    http.addHeader("Content-Type", "application/x-www-form-urlencoded");
+
+    int httpResponseCode = http.POST(influxDBLine);
+
+    if (httpResponseCode > 0)
+    {
+        ESP_LOGI("InfluxDB", "HTTP Response code: %d", httpResponseCode);
+        if (httpResponseCode != 204)
+        {
+            ESP_LOGD("InfluxDB", "Server response: %s", http.getString().c_str()); // Логируем ответ сервера на уровне DEBUG
+        }
+    }
+    else
+    {
+        ESP_LOGE("InfluxDB", "Error sending data to InfluxDB: %s", http.errorToString(httpResponseCode).c_str());
+    }
+
+    http.end();
 }
 
-  http.end();
-}
 
 // Функция получения номера месяца
 int getMonth() {
