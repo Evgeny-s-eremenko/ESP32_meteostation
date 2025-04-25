@@ -140,7 +140,7 @@ function updateTable(data) {
   }
 
   function fetchDataAndUpdate() {
-    fetch('/graph-data')
+    fetch('/graph-data', { cache: "no-store" })
         .then(response => response.json())
         .then(data => updateTable(data)) // Обновляем таблицу без проверок
         .catch(error => console.error("Ошибка загрузки данных:", error));

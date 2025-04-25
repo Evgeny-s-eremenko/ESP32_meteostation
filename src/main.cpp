@@ -1,6 +1,8 @@
 #include <Arduino.h>
 #include <RH_NRF905.h>
 #include <Adafruit_BME280.h>
+//#include <Adafruit_HMC5883_U.h>
+#include "HMC5883L.h"
 #include <SparkFun_ENS160.h>
 #include <SparkFun_Qwiic_Humidity_AHT20.h>
 #include <WiFi.h>
@@ -51,6 +53,7 @@ extern TaskHandle_t taskTVOCReadHandle = NULL;
 // Мьютексы
 SemaphoreHandle_t i2cMutex;
 SemaphoreHandle_t driverMutex;
+portMUX_TYPE mutexMux = portMUX_INITIALIZER_UNLOCKED; // Глобальный объект критической секции
 
 // Таймер
 TimerHandle_t wifiTimer;
@@ -110,6 +113,7 @@ HardwareSerial mh19(1); //Serial1 для датчика CO2
 Adafruit_BME280 bme;                                  // Датчик давления BMP280
 SparkFun_ENS160 ens160;
 AHT20 aht20;                                  // Датчик компенсации T и H AHT21
+HMC5883L mag;
 RH_NRF905 driver(NRF905_CE, NRF905_TX_EN, NRF905_CS); // Радиомодуль nRF905
 AsyncWebServer server(80);      // Асинхронный HTTP сервер
 AsyncWebSocket webSocket("/ws"); // Асинхронный WebSocket сервер
@@ -130,6 +134,7 @@ void handleGraphData();
 void handleRoot();
 void nextionRestart();
 void reconnectWiFi();
+void checkMutex();
 void processNextionTask(void *pvParameters);
 void taskForecast(void *pvParameters);
 void taskCO2Read(void *pvParameters);
@@ -161,6 +166,9 @@ double sunsetTime;
 
 // Переменная для хранения текущей страницы Nextion
 String currentPage = "page0";
+
+// Статус датчика ENS160
+int ensStatus; 
 
 // Параметры попыток
 const uint8_t MAX_ATTEMPTS_PER_CYCLE = 3;
@@ -429,7 +437,8 @@ void resetNRF905() {
 void resetI2CBus()
 {
   i2cResetCount++;
-  ESP_LOGE("SYS", "Resetting I2C bus...");
+  vSemaphoreDelete(i2cMutex);
+  ESP_LOGE("SYS", "Deleting i2cMutex. Resetting I2C bus...");
   pinMode(22, OUTPUT);
   pinMode(21, INPUT_PULLUP); // NACK-сигнал для датчиков
 
@@ -449,6 +458,8 @@ void resetI2CBus()
   // Возвращаем SCL и SDA в режим работы с I2C
   Wire.end();         // Завершаем работу с шиной
   Wire.begin(21, 22); // Переинициализируем I2C
+  checkMutex();
+  ESP_LOGW("SYS", "Re-creating i2cMutex. I2C bus was reseted");
 
   ens160.setOperatingMode(SFE_ENS160_RESET);
 
@@ -513,6 +524,9 @@ const char *modeToString(uint8_t mode) {
 
 void getBME280Status(char *buffer, size_t len) {
   size_t offset = 0;
+
+  // Проверяем, инициализирован ли мьютекс, если нет — создаём
+  checkMutex();
   
   if (xSemaphoreTake(i2cMutex, 1000 / portTICK_PERIOD_MS) == pdTRUE) {
     // Проверка BME280
@@ -536,11 +550,13 @@ void getBME280Status(char *buffer, size_t len) {
     }
     
     xSemaphoreGive(i2cMutex);
-  } else {
-    snprintf(buffer, len, "Failed to acquire i2cMutex! From task - %s\n", pcTaskGetTaskName(NULL));
+  } else if (i2cMutex == NULL) {
+    snprintf(buffer, len, "i2cMutex is NULL! Failed to acquire i2cMutex! From task - %s\n", pcTaskGetTaskName(NULL));
+    ESP_LOGE("MUTEX", "i2cMutex is NULL! Task: %s", pcTaskGetTaskName(NULL));
+} else {
     ESP_LOGE("MUTEX", "Failed to acquire i2cMutex! From task: %s | Mutex holder: %s", 
-      pcTaskGetTaskName(NULL), 
-      xSemaphoreGetMutexHolder(i2cMutex) ? pcTaskGetTaskName(xSemaphoreGetMutexHolder(i2cMutex)) : "None");
+        pcTaskGetTaskName(NULL), 
+        xSemaphoreGetMutexHolder(i2cMutex) ? pcTaskGetTaskName(xSemaphoreGetMutexHolder(i2cMutex)) : "None");
     resetI2CBus();
   }
 }
@@ -807,6 +823,22 @@ void nextionFin() {
   nextion.write(0xFF);
 }
 
+// ----------------------- Функция проверки мьютека ----------------------
+
+void checkMutex() {
+  taskENTER_CRITICAL(&mutexMux);  // Входим в критическую секцию
+
+  if (i2cMutex == NULL) {
+    i2cMutex = xSemaphoreCreateMutex();
+    if (i2cMutex == NULL) {
+      ESP_LOGE("MUTEX", "Failed to create i2cMutex! Task: %s", pcTaskGetTaskName(NULL));
+    } else {
+      ESP_LOGI("MUTEX", "Created i2cMutex in task: %s", pcTaskGetTaskName(NULL));
+    }
+  }
+
+  taskEXIT_CRITICAL(&mutexMux);  // Выходим из критической секции
+}
 // ----------------------- Функции запуска и остановки задач -------------
 void nextionWakeUP()  {
   nextion.print("sleep=0");
@@ -1020,6 +1052,13 @@ void switchTaskNTP() {
 void switchTaskTVOCRead() {
   if (isTaskActive(taskTVOCReadHandle)) {
     // Если задача активна - останавливаем
+    // Проверяем, инициализирован ли мьютекс, если нет — создаём
+    checkMutex();
+    if (xSemaphoreTake(i2cMutex, 1000 / portTICK_PERIOD_MS) == pdTRUE)
+        {
+          ens160.setOperatingMode(SFE_ENS160_DEEP_SLEEP);
+          xSemaphoreGive(i2cMutex);
+        }
     vTaskSuspend(taskTVOCReadHandle);
     TVOCReadRunning = false;
     ESP_LOGD("SYS", "TVOC reading Task: stopped");
@@ -1047,6 +1086,14 @@ void switchTaskTVOCRead() {
       );
       ESP_LOGD("SYS", "TVOC reading Task: created and running");
     } else {
+      checkMutex();
+      if (xSemaphoreTake(i2cMutex, 1000 / portTICK_PERIOD_MS) == pdTRUE)
+        {
+          ens160.setOperatingMode(SFE_ENS160_RESET);
+          vTaskDelay(100 / portTICK_PERIOD_MS);
+          ens160.setOperatingMode(SFE_ENS160_STANDARD);
+          xSemaphoreGive(i2cMutex);
+        }
       vTaskResume(taskTVOCReadHandle);
       ESP_LOGD("SYS", "TVOC reading Task: resumed");
     }
@@ -1156,6 +1203,7 @@ void taskBMP280(void *pvParameters)
 {
   while (true)
   {
+    checkMutex();
     if (xSemaphoreTake(i2cMutex, 1000 / portTICK_PERIOD_MS) == pdTRUE)
     {
       pressure = bme.readPressure() / 100.0f; // Получаем давление
@@ -1174,6 +1222,37 @@ void taskBMP280(void *pvParameters)
     }
 
     vTaskDelay(5000 / portTICK_PERIOD_MS); // Задержка 5 секунд
+  }
+}
+
+void taskGeomagnetic(void *pvParameters) {
+  int16_t x_raw, y_raw, z_raw;
+
+  while (true) {
+    checkMutex();
+    if (xSemaphoreTake(i2cMutex, 1000 / portTICK_PERIOD_MS) == pdTRUE)
+    {
+      if (mag.readRaw(x_raw, y_raw, z_raw)) {
+        float x = x_raw * mag.scale;
+        float y = y_raw * mag.scale;
+        float z = z_raw * mag.scale;
+        float B = sqrt(x*x + y*y + z*z);
+        ESP_LOGD("SENSORS", "Mag field: X=%.2f Y=%.2f Z=%.2f B=%.2f uT\n", x, y, z, B);
+        xSemaphoreGive(i2cMutex);
+      } else {
+        ESP_LOGE("SENSORS", "Read sensor HMC5883L error!");
+      }
+    }
+    else
+    {
+      // Ошибка: превышено время ожидания мьютекса
+      ESP_LOGE("MUTEX", "Failed to acquire i2cMutex! From task: %s | Mutex holder: %s", 
+        pcTaskGetTaskName(NULL), 
+        xSemaphoreGetMutexHolder(i2cMutex) ? pcTaskGetTaskName(xSemaphoreGetMutexHolder(i2cMutex)) : "None");
+      resetI2CBus();
+    }
+
+    vTaskDelay(pdMS_TO_TICKS(5000)); // 10 секунд
   }
 }
 
@@ -1523,18 +1602,61 @@ void taskTVOCRead(void *pvParameters)
 
     while (true)
     {
+      checkMutex();
         // Получаем доступ к I²C
         if (xSemaphoreTake(i2cMutex, 1000 / portTICK_PERIOD_MS) == pdTRUE)
         {
             // Проверка доступности ENS160
             if (ens160.begin())
             {
-                ens160.setOperatingMode(SFE_ENS160_STANDARD);
-                AQI = ens160.getAQI();
-                TVOC = ens160.getTVOC();
-                ECO2 = ens160.getECO2();
-                ESP_LOGV("SENSORS", "AQI: %d\tTVOC: %d ppb\tCO2: %d ppm\n", AQI, TVOC, ECO2);
-                ens160ErrorCount = 0;
+                //ens160.setOperatingMode(SFE_ENS160_STANDARD);
+                //vTaskDelay(50 / portTICK_PERIOD_MS);
+                if (ens160.checkDataStatus()) 
+                {
+                  AQI = ens160.getAQI();
+                  TVOC = ens160.getTVOC();
+                  ECO2 = ens160.getECO2();
+                  ESP_LOGV("SENSORS", "AQI: %d\tTVOC: %d ppb\tCO2: %d ppm\n", AQI, TVOC, ECO2);
+                  switch (ens160.getFlags()) {
+                    case 0:
+                      ESP_LOGI("INIT", "Operating ok: Standard Operation");
+                      break;
+                    case 1:
+                      ESP_LOGW("INIT", "Warm-up: occurs for 3 minutes after power-on.");
+                      break;
+                    case 2:
+                      ESP_LOGW("INIT", "Initial Start-up: Occurs for the first hour of operation and only once in sensor's lifetime.");
+                      break;
+                    case 3:
+                      ESP_LOGW("INIT", "No valid data available.");
+                      break;
+                    default:
+                      ESP_LOGE("INIT", "Unknown status.");
+                      break;
+                  }
+                }
+                else  {
+                  ESP_LOGW("SENSORS", "No new data from ENS160");
+                  switch (ens160.getFlags()) {
+                    case 0:
+                      ESP_LOGI("INIT", "Operating ok: Standard Operation");
+                      break;
+                    case 1:
+                      ESP_LOGW("INIT", "Warm-up: occurs for 3 minutes after power-on.");
+                      break;
+                    case 2:
+                      ESP_LOGW("INIT", "Initial Start-up: Occurs for the first hour of operation and only once in sensor's lifetime.");
+                      break;
+                    case 3:
+                      ESP_LOGW("INIT", "No valid data available.");
+                      break;
+                    default:
+                      ESP_LOGE("INIT", "Unknown status.");
+                      break;
+                  }
+                }
+                //ens160.setOperatingMode(SFE_ENS160_IDLE);
+              ens160ErrorCount = 0;
             }
             else
             {
@@ -1576,9 +1698,10 @@ void taskTVOCRead(void *pvParameters)
             vTaskDelete(NULL);
         }
 
-        // Компенсация раз в минуту
-        if ((millis() - lastCompensationTime) >= 60000)
+        // Компенсация раз в 2 минуты
+        if ((millis() - lastCompensationTime) >= 120000)
         {
+          checkMutex();
             if (xSemaphoreTake(i2cMutex, 1000 / portTICK_PERIOD_MS) == pdTRUE)
             {
                 ens160.setTempCompensationCelsius(tempAHT);
@@ -1586,7 +1709,7 @@ void taskTVOCRead(void *pvParameters)
                 ESP_LOGI("SENSORS", "Setting temperature and humidity calibration values:\nTemperature: %.2f °C, Humidity: %.2f %%\n", tempAHT, rH);
                 xSemaphoreGive(i2cMutex);
                 lastCompensationTime = millis();
-                vTaskDelay(2000 / portTICK_PERIOD_MS);
+                vTaskDelay(5000 / portTICK_PERIOD_MS);
             }
             else
             {
@@ -1665,30 +1788,59 @@ void wifi_timer_callback(TimerHandle_t xTimer) {
 }
 
 void wifi_monitor_task(void* pvParams) {
-  // Изначально таймер с коротким интервалом (30 секунд)
+  // Create timer with short interval (30 seconds)
   wifiTimer = xTimerCreate("WiFiTimer", pdMS_TO_TICKS(SHORT_COOLDOWN), pdFALSE, 0, wifi_timer_callback);
   
-  // Подписываемся на события Wi‑Fi
-  WiFi.onEvent([](WiFiEvent_t event, WiFiEventInfo_t info) {
+  if (wifiTimer == NULL) {
+    ESP_LOGE("WIFI", "Failed to create WiFi timer!");
+    vTaskDelete(NULL); // Delete task if timer creation fails
+    return;
+  }
+
+  // Subscribe to WiFi events
+  WiFiEventId_t eventHandler = WiFi.onEvent([](WiFiEvent_t event, WiFiEventInfo_t info) {
     switch(event) {
-      case ARDUINO_EVENT_WIFI_STA_DISCONNECTED:
+      case ARDUINO_EVENT_WIFI_STA_DISCONNECTED: {
         ESP_LOGW("WIFI", "Disconnected!");
         last_reconnect_time = 0;
+        
+        // Critical section for thread-safe timer operation
+        UBaseType_t uxSavedInterruptStatus = taskENTER_CRITICAL_FROM_ISR();
+        BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+        
         if(!xTimerIsTimerActive(wifiTimer)) {
-          // Сбросим время перед новым циклом попыток
-          
-          xTimerStart(wifiTimer, 0);
+          xTimerStartFromISR(wifiTimer, &xHigherPriorityTaskWoken);
+        }
+        
+        taskEXIT_CRITICAL_FROM_ISR(uxSavedInterruptStatus);
+        if(xHigherPriorityTaskWoken) {
+          portYIELD_FROM_ISR();
         }
         break;
-      case ARDUINO_EVENT_WIFI_STA_GOT_IP:
-        xTimerStop(wifiTimer, 0);
-        wifi_attempts = 0;  // сброс при получении IP
+      }
+      case ARDUINO_EVENT_WIFI_STA_GOT_IP: {
+        BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+        xTimerStopFromISR(wifiTimer, &xHigherPriorityTaskWoken);
+        
+        wifi_attempts = 0;  // reset on IP acquisition
         ESP_LOGI("WIFI", "Obtained IP: %s", WiFi.localIP().toString().c_str());
+        
+        if(xHigherPriorityTaskWoken) {
+          portYIELD_FROM_ISR();
+        }
         break;
+      }
       default:
         break;
     }
   });
+
+  if (!eventHandler) {
+    ESP_LOGE("WIFI", "Failed to register WiFi event handler!");
+    xTimerDelete(wifiTimer, 0); // Clean up timer
+    vTaskDelete(NULL); // Delete task
+    return;
+  }
 
   // Основной цикл мониторинга
   while(1) {
@@ -1823,10 +1975,38 @@ void setup()
       ESP_LOGI("INIT", "BME280 detected");
   }
 
+  if (!mag.begin()) {
+      ESP_LOGE("INIT", "HMC5883L not detected. Please check wiring!");
+    } else {
+      ESP_LOGI("INIT", "HMC5883L detected. Starting GeomagneticTask");
+      xTaskCreatePinnedToCore(taskGeomagnetic, "GeomagneticTask", 2048, NULL, 2, NULL, 1);
+  }
+
   if (!ens160.begin()) {
       ESP_LOGE("INIT", "ENS160 not detected. Please check wiring!");
     } else {
-      ESP_LOGI("INIT", "ENS160 detected");
+      ens160.setOperatingMode(SFE_ENS160_RESET);
+      delay(100);
+      ens160.setOperatingMode(SFE_ENS160_STANDARD);
+      ESP_LOGI("INIT", "ENS160 detected. Standart mode set");
+      ensStatus = ens160.getFlags();      
+      switch (ensStatus) {
+        case 0:
+          ESP_LOGI("INIT", "Operating ok: Standard Operation");
+          break;
+        case 1:
+          ESP_LOGI("INIT", "Warm-up: occurs for 3 minutes after power-on.");
+          break;
+        case 2:
+          ESP_LOGI("INIT", "Initial Start-up: Occurs for the first hour of operation and only once in sensor's lifetime.");
+          break;
+        case 3:
+          ESP_LOGI("INIT", "No valid data available.");
+          break;
+        default:
+          ESP_LOGI("INIT", "Unknown status.");
+          break;
+      }
   }
 
   if (!aht20.begin()) {
@@ -1865,6 +2045,7 @@ void setup()
 
   xTaskCreate(taskNRF905, "NRF905 Receiver", 4096, NULL, 5, &taskNRF905Handle);
   xTaskCreate(taskBMP280, "BMP280 Sensor", 2048, NULL, 4, &taskBMP280Handle);
+  //xTaskCreatePinnedToCore(taskGeomagnetic, "GeomagneticTask", 2048, NULL, 2, NULL, 1);
   xTaskCreate(taskCO2Read, "CO2 read task", 2048, NULL, 3, &taskCO2ReadHandle);
   xTaskCreate(taskTVOCRead, "ENS160 read task", 4096, NULL, 2, &taskTVOCReadHandle);
   xTaskCreate(taskGetTime, "Get NTP Time", 4096, NULL, 2, &taskGetTimeHandle);
@@ -1872,7 +2053,7 @@ void setup()
   xTaskCreate(taskForecast, "Forecast task", 2048, NULL, 1, &taskForecasterHandle);
   xTaskCreate(processNextionTask, "Nextion", 4096, NULL, 3, &processNextionTaskHandle);
   xTaskCreate(memory_task, "Memory Monitor", 4096, NULL, 1, NULL);
-  xTaskCreate(wifi_monitor_task, "WiFiMonitor", 2048, NULL, 2, NULL);
+  xTaskCreatePinnedToCore(wifi_monitor_task, "WiFiMonitor", 2048, NULL, 2, NULL, 0);
 }
 
 // ----------------------------- Main loop -----------------------------
