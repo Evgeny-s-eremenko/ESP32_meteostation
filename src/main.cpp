@@ -2,7 +2,7 @@
 #include <RH_NRF905.h>
 #include <Adafruit_BME280.h>
 //#include <Adafruit_HMC5883_U.h>
-#include "HMC5883L.h"
+//#include "HMC5883L.h"
 #include <SparkFun_ENS160.h>
 #include <SparkFun_Qwiic_Humidity_AHT20.h>
 #include <WiFi.h>
@@ -18,6 +18,7 @@
 #include <ESPAsyncWebServer.h>
 #include <AsyncTCP.h>
 #include <esp_log.h>
+#include <math.h>
 
 
 
@@ -113,7 +114,7 @@ HardwareSerial mh19(1); //Serial1 для датчика CO2
 Adafruit_BME280 bme;                                  // Датчик давления BMP280
 SparkFun_ENS160 ens160;
 AHT20 aht20;                                  // Датчик компенсации T и H AHT21
-HMC5883L mag;
+//HMC5883L mag;
 RH_NRF905 driver(NRF905_CE, NRF905_TX_EN, NRF905_CS); // Радиомодуль nRF905
 AsyncWebServer server(80);      // Асинхронный HTTP сервер
 AsyncWebSocket webSocket("/ws"); // Асинхронный WebSocket сервер
@@ -154,6 +155,9 @@ volatile float homeTemp = 0.0f;
 volatile float homeHum = 0.0f;
 volatile float homeDP = 0.0f;
 volatile float trend = 0.0f;
+float es(float T) {
+  return 6.112 * exp((17.62 * T) / (243.12 + T)); // давление насыщенного пара, мбар
+}
 float forecast = 0;
 int month = -1;
 volatile int ppm = 400;
@@ -1206,15 +1210,24 @@ void taskBMP280(void *pvParameters)
     checkMutex();
     if (xSemaphoreTake(i2cMutex, 1000 / portTICK_PERIOD_MS) == pdTRUE)
     {
-      pressure = bme.readPressure() / 100.0f; // Получаем давление
-      homeTemp = bme.readTemperature();
-      homeHum = bme.readHumidity();
+      float rawTemp = bme.readTemperature();
+      float rawHum  = bme.readHumidity();
+      pressure      = bme.readPressure() / 100.0f; // гПа
+
+      // Корректируем температуру
+      homeTemp = rawTemp - 3.0f;
+
+      // Корректируем влажность по формуле
+      float eRaw  = es(rawTemp);
+      float eCorr = es(homeTemp);
+      homeHum = rawHum * (eCorr / eRaw);
+      if (homeHum > 100.0f) homeHum = 100.0f; // ограничение
+
       xSemaphoreGive(i2cMutex);
       homeDP = calculatehomeDP(homeTemp, homeHum);
     }
     else
     {
-      // Ошибка: превышено время ожидания мьютекса
       ESP_LOGE("MUTEX", "Failed to acquire i2cMutex! From task: %s | Mutex holder: %s", 
         pcTaskGetTaskName(NULL), 
         xSemaphoreGetMutexHolder(i2cMutex) ? pcTaskGetTaskName(xSemaphoreGetMutexHolder(i2cMutex)) : "None");
@@ -1225,36 +1238,36 @@ void taskBMP280(void *pvParameters)
   }
 }
 
-void taskGeomagnetic(void *pvParameters) {
-  int16_t x_raw, y_raw, z_raw;
+// void taskGeomagnetic(void *pvParameters) {
+//   int16_t x_raw, y_raw, z_raw;
 
-  while (true) {
-    checkMutex();
-    if (xSemaphoreTake(i2cMutex, 1000 / portTICK_PERIOD_MS) == pdTRUE)
-    {
-      if (mag.readRaw(x_raw, y_raw, z_raw)) {
-        float x = x_raw * mag.scale;
-        float y = y_raw * mag.scale;
-        float z = z_raw * mag.scale;
-        float B = sqrt(x*x + y*y + z*z);
-        ESP_LOGD("SENSORS", "Mag field: X=%.2f Y=%.2f Z=%.2f B=%.2f uT\n", x, y, z, B);
-        xSemaphoreGive(i2cMutex);
-      } else {
-        ESP_LOGE("SENSORS", "Read sensor HMC5883L error!");
-      }
-    }
-    else
-    {
-      // Ошибка: превышено время ожидания мьютекса
-      ESP_LOGE("MUTEX", "Failed to acquire i2cMutex! From task: %s | Mutex holder: %s", 
-        pcTaskGetTaskName(NULL), 
-        xSemaphoreGetMutexHolder(i2cMutex) ? pcTaskGetTaskName(xSemaphoreGetMutexHolder(i2cMutex)) : "None");
-      resetI2CBus();
-    }
+//   while (true) {
+//     checkMutex();
+//     if (xSemaphoreTake(i2cMutex, 1000 / portTICK_PERIOD_MS) == pdTRUE)
+//     {
+//       if (mag.readRaw(x_raw, y_raw, z_raw)) {
+//         float x = x_raw * mag.scale;
+//         float y = y_raw * mag.scale;
+//         float z = z_raw * mag.scale;
+//         float B = sqrt(x*x + y*y + z*z);
+//         ESP_LOGD("SENSORS", "Mag field: X=%.2f Y=%.2f Z=%.2f B=%.2f uT\n", x, y, z, B);
+//         xSemaphoreGive(i2cMutex);
+//       } else {
+//         ESP_LOGE("SENSORS", "Read sensor HMC5883L error!");
+//       }
+//     }
+//     else
+//     {
+//       // Ошибка: превышено время ожидания мьютекса
+//       ESP_LOGE("MUTEX", "Failed to acquire i2cMutex! From task: %s | Mutex holder: %s", 
+//         pcTaskGetTaskName(NULL), 
+//         xSemaphoreGetMutexHolder(i2cMutex) ? pcTaskGetTaskName(xSemaphoreGetMutexHolder(i2cMutex)) : "None");
+//       resetI2CBus();
+//     }
 
-    vTaskDelay(pdMS_TO_TICKS(5000)); // 10 секунд
-  }
-}
+//     vTaskDelay(pdMS_TO_TICKS(5000)); // 10 секунд
+//   }
+// }
 
 void taskGetTime(void *pvParameters)
 {
@@ -1852,15 +1865,15 @@ void wifi_monitor_task(void* pvParams) {
   }
 }
 
-void memory_task(void* pvParams) {
-  while(1) {
-    ESP_LOGD("MEM", "Free: %6d | Min Free Block: %6d | Frag: %.2f%%\n", 
-                  ESP.getFreeHeap(), 
-                  heap_caps_get_largest_free_block(MALLOC_CAP_8BIT),
-                  (100.0f - (heap_caps_get_largest_free_block(MALLOC_CAP_8BIT) * 100.0f) / ESP.getFreeHeap()));
-    vTaskDelay(pdMS_TO_TICKS(30000)); // Каждые 30 сек
-  }
-}
+// void memory_task(void* pvParams) {
+//   while(1) {
+//     ESP_LOGD("MEM", "Free: %6d | Min Free Block: %6d | Frag: %.2f%%\n", 
+//                   ESP.getFreeHeap(), 
+//                   heap_caps_get_largest_free_block(MALLOC_CAP_8BIT),
+//                   (100.0f - (heap_caps_get_largest_free_block(MALLOC_CAP_8BIT) * 100.0f) / ESP.getFreeHeap()));
+//     vTaskDelay(pdMS_TO_TICKS(30000)); // Каждые 30 сек
+//   }
+// }
 
 
 // ----------------------------- Setup -----------------------------
@@ -1975,12 +1988,12 @@ void setup()
       ESP_LOGI("INIT", "BME280 detected");
   }
 
-  if (!mag.begin()) {
-      ESP_LOGE("INIT", "HMC5883L not detected. Please check wiring!");
-    } else {
-      ESP_LOGI("INIT", "HMC5883L detected. Starting GeomagneticTask");
-      xTaskCreatePinnedToCore(taskGeomagnetic, "GeomagneticTask", 2048, NULL, 2, NULL, 1);
-  }
+  // if (!mag.begin()) {
+  //     ESP_LOGE("INIT", "HMC5883L not detected. Please check wiring!");
+  //   } else {
+  //     ESP_LOGI("INIT", "HMC5883L detected. Starting GeomagneticTask");
+  //     xTaskCreatePinnedToCore(taskGeomagnetic, "GeomagneticTask", 2048, NULL, 2, NULL, 1);
+  // }
 
   if (!ens160.begin()) {
       ESP_LOGE("INIT", "ENS160 not detected. Please check wiring!");
@@ -2052,7 +2065,7 @@ void setup()
   xTaskCreate(taskSendDataToInfluxDB, "InfluxDBTask", 4096, NULL, 6, &taskSendDataToInfluxDBHandle);
   xTaskCreate(taskForecast, "Forecast task", 2048, NULL, 1, &taskForecasterHandle);
   xTaskCreate(processNextionTask, "Nextion", 4096, NULL, 3, &processNextionTaskHandle);
-  xTaskCreate(memory_task, "Memory Monitor", 4096, NULL, 1, NULL);
+  //xTaskCreate(memory_task, "Memory Monitor", 4096, NULL, 1, NULL);
   xTaskCreatePinnedToCore(wifi_monitor_task, "WiFiMonitor", 2048, NULL, 2, NULL, 0);
 }
 
