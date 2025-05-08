@@ -1,8 +1,7 @@
 #include <Arduino.h>
 #include <RH_NRF905.h>
 #include <Adafruit_BME280.h>
-//#include <Adafruit_HMC5883_U.h>
-//#include "HMC5883L.h"
+#include <Adafruit_MMC56x3.h>
 #include <SparkFun_ENS160.h>
 #include <SparkFun_Qwiic_Humidity_AHT20.h>
 #include <WiFi.h>
@@ -41,7 +40,6 @@ const int influxDBPort = 8086;
 const char* influxDBDatabase = "REMOVED";
 
 // Дескрипторы задач
-extern TaskHandle_t taskWebServerHandle = NULL;
 extern TaskHandle_t taskNRF905Handle = NULL;
 extern TaskHandle_t taskCO2ReadHandle = NULL;
 extern TaskHandle_t processNextionTaskHandle = NULL;
@@ -50,6 +48,7 @@ extern TaskHandle_t taskSendDataToInfluxDBHandle = NULL;
 extern TaskHandle_t taskForecasterHandle = NULL;
 extern TaskHandle_t taskGetTimeHandle = NULL;
 extern TaskHandle_t taskTVOCReadHandle = NULL;
+extern TaskHandle_t taskGeomagneticHandle = NULL;
 
 // Мьютексы
 SemaphoreHandle_t i2cMutex;
@@ -60,7 +59,7 @@ portMUX_TYPE mutexMux = portMUX_INITIALIZER_UNLOCKED; // Глобальный о
 TimerHandle_t wifiTimer;
 
 // Флаги задач
-volatile bool webServerRunning = false;
+
 volatile bool nRF905Running = false;
 volatile bool CO2ReadRunning = false;
 volatile bool processNextionRunning = false;
@@ -69,6 +68,7 @@ volatile bool sendDataToInfluxDBRunning = false;
 volatile bool forecasterRunning = false;
 volatile bool getTimeRunning = false;
 volatile bool TVOCReadRunning = false;
+volatile bool GeomagneticRunning = false;
 
 // Функция проверки состояния задачи
 bool isTaskActive(TaskHandle_t taskHandle) {
@@ -98,6 +98,10 @@ double lat = 50.5302;
 double lon = 137.0044;
 int tzOffset = 10; // Часовой пояс (UTC+10)
 
+// --------------------------- Сглаживание данных ---------------------------
+
+const float alpha = 0.2; // Коэффициент сглаживания (0.0 - 1.0)
+
 // ---------------------- Определение пинов serial2 --------------------------
 HardwareSerial nextion(2); // Используем Serial2 для связи с дисплеем
 #define RX2 16  // RX пин ESP32
@@ -114,7 +118,7 @@ HardwareSerial mh19(1); //Serial1 для датчика CO2
 Adafruit_BME280 bme;                                  // Датчик давления BMP280
 SparkFun_ENS160 ens160;
 AHT20 aht20;                                  // Датчик компенсации T и H AHT21
-//HMC5883L mag;
+Adafruit_MMC5603 mmc;
 RH_NRF905 driver(NRF905_CE, NRF905_TX_EN, NRF905_CS); // Радиомодуль nRF905
 AsyncWebServer server(80);      // Асинхронный HTTP сервер
 AsyncWebSocket webSocket("/ws"); // Асинхронный WebSocket сервер
@@ -144,6 +148,7 @@ void taskNRF905(void *pvParameters);
 void taskBMP280(void *pvParameters);
 void taskTVOCRead(void *pvParameters);
 void taskSendDataToInfluxDB(void *pvParameters);
+void taskGeomagnetic(void *pvParameters);
 float calculateDewPoint(float temperature, float humidity);
 
 // --------------------------- Глобальные переменные ---------------------------
@@ -155,8 +160,8 @@ volatile float homeTemp = 0.0f;
 volatile float homeHum = 0.0f;
 volatile float homeDP = 0.0f;
 volatile float trend = 0.0f;
-float es(float T) {
-  return 6.112 * exp((17.62 * T) / (243.12 + T)); // давление насыщенного пара, мбар
+float es(float tempC) {
+  return 6.112f * exp((17.67f * tempC) / (tempC + 243.5f));
 }
 float forecast = 0;
 int month = -1;
@@ -167,6 +172,7 @@ volatile int ECO2 = 400;
 volatile uint32_t i2cResetCount = 0;
 double sunriseTime;
 double sunsetTime;
+volatile float filteredB = 0.0f;
 
 // Переменная для хранения текущей страницы Nextion
 String currentPage = "page0";
@@ -240,7 +246,7 @@ void handleGraphData(AsyncWebServerRequest *request) {
   doc["trend"] = trend;
   doc["CO2"] = ppm;
   doc["TVOC"] = TVOC;
-
+  doc["GEO"] = filteredB;
   AsyncResponseStream *response = request->beginResponseStream("application/json");
   serializeJson(doc, *response);
   request->send(response);
@@ -250,11 +256,11 @@ void handleGraphData(AsyncWebServerRequest *request) {
 // Общая функция для формирования JSON состояния задач
 void buildTaskStateJson(char* buffer, size_t bufferSize) {
   const char* jsonFormat = 
-    "{\"webServer\":%s,\"nRF905\":%s,\"CO2\":%s,\"nextion\":%s,"
+    "{\"Geomagnetic\":%s,\"nRF905\":%s,\"CO2\":%s,\"nextion\":%s,"
     "\"BMP280\":%s,\"InfluxDB\":%s,\"Forecaster\":%s,\"NTP\":%s,\"TVOC\":%s}";
     
   snprintf(buffer, bufferSize, jsonFormat,
-    isTaskActive(taskWebServerHandle) ? "true" : "false",
+    isTaskActive(taskGeomagneticHandle) ? "true" : "false",
     isTaskActive(taskNRF905Handle) ? "true" : "false",
     isTaskActive(taskCO2ReadHandle) ? "true" : "false",
     isTaskActive(processNextionTaskHandle) ? "true" : "false",
@@ -999,6 +1005,34 @@ void switchTaskBMP280() {
   sendTaskStateUpdate(); // Отправляем обновление статуса
 }
 
+void switchTaskGeomagnetic() {
+  if (isTaskActive(taskGeomagneticHandle)) {
+    // Если задача активна - останавливаем
+    vTaskSuspend(taskGeomagneticHandle);
+    GeomagneticRunning = false;
+    ESP_LOGD("SYS", "GEO Task: stopped");
+  } else {
+    // Если задача неактивна - запускаем/возобновляем
+    if (taskGeomagneticHandle == NULL) {
+      xTaskCreatePinnedToCore(
+        taskGeomagnetic,
+        "GeomagneticTask", 
+        4096,
+        NULL,
+        2,
+        &taskGeomagneticHandle,
+        1
+      );
+      ESP_LOGD("SYS", "GEO Task: created and running");
+    } else {
+      vTaskResume(taskGeomagneticHandle);
+      ESP_LOGD("SYS", "GEO Task: resumed");
+    }
+    GeomagneticRunning = true;
+  }
+  sendTaskStateUpdate(); // Отправляем обновление статуса
+}
+
 void switchTaskForecaster() {
   if (isTaskActive(taskForecasterHandle)) {
     // Если задача активна - останавливаем
@@ -1134,6 +1168,8 @@ void handleTaskControl(AsyncWebServerRequest *request) {
       switchTaskNTP();
   } else if (task == "TVOC") {
       switchTaskTVOCRead();
+  } else if (task == "Geomagnetic") {
+      switchTaskGeomagnetic();
   } else {
       request->send(400, "text/plain", "Bad Request: Unknown task");
       return;
@@ -1220,7 +1256,7 @@ void taskBMP280(void *pvParameters)
       // Корректируем влажность по формуле
       float eRaw  = es(rawTemp);
       float eCorr = es(homeTemp);
-      homeHum = rawHum * (eCorr / eRaw);
+      homeHum = rawHum * (eRaw / eCorr);
       if (homeHum > 100.0f) homeHum = 100.0f; // ограничение
 
       xSemaphoreGive(i2cMutex);
@@ -1238,36 +1274,39 @@ void taskBMP280(void *pvParameters)
   }
 }
 
-// void taskGeomagnetic(void *pvParameters) {
-//   int16_t x_raw, y_raw, z_raw;
+void taskGeomagnetic(void *pvParameters) {
+  while (true) {
+    checkMutex();
+    if (xSemaphoreTake(i2cMutex, 1000 / portTICK_PERIOD_MS) == pdTRUE)
+    {
+      sensors_event_t mag;
+      mmc.getEvent(&mag);
 
-//   while (true) {
-//     checkMutex();
-//     if (xSemaphoreTake(i2cMutex, 1000 / portTICK_PERIOD_MS) == pdTRUE)
-//     {
-//       if (mag.readRaw(x_raw, y_raw, z_raw)) {
-//         float x = x_raw * mag.scale;
-//         float y = y_raw * mag.scale;
-//         float z = z_raw * mag.scale;
-//         float B = sqrt(x*x + y*y + z*z);
-//         ESP_LOGD("SENSORS", "Mag field: X=%.2f Y=%.2f Z=%.2f B=%.2f uT\n", x, y, z, B);
-//         xSemaphoreGive(i2cMutex);
-//       } else {
-//         ESP_LOGE("SENSORS", "Read sensor HMC5883L error!");
-//       }
-//     }
-//     else
-//     {
-//       // Ошибка: превышено время ожидания мьютекса
-//       ESP_LOGE("MUTEX", "Failed to acquire i2cMutex! From task: %s | Mutex holder: %s", 
-//         pcTaskGetTaskName(NULL), 
-//         xSemaphoreGetMutexHolder(i2cMutex) ? pcTaskGetTaskName(xSemaphoreGetMutexHolder(i2cMutex)) : "None");
-//       resetI2CBus();
-//     }
+      float x = mag.magnetic.x;
+      float y = mag.magnetic.y;
+      float z = mag.magnetic.z;
 
-//     vTaskDelay(pdMS_TO_TICKS(5000)); // 10 секунд
-//   }
-// }
+      float B = sqrt(x * x + y * y + z * z);
+
+      // EMA фильтрация
+      filteredB = alpha * B + (1.0 - alpha) * filteredB;
+      xSemaphoreGive(i2cMutex);
+
+      ESP_LOGV("SENSORS", "X=%.2f Y=%.2f Z=%.2f B=%.2f -> Filtered=%.2f uT\n",
+                    x, y, z, B, filteredB);
+
+      vTaskDelay(pdMS_TO_TICKS(1000));  // каждые 5 секунд
+    }
+    else
+    {
+      // Ошибка: превышено время ожидания мьютекса
+      ESP_LOGE("MUTEX", "Failed to acquire i2cMutex! From task: %s | Mutex holder: %s", 
+        pcTaskGetTaskName(NULL), 
+        xSemaphoreGetMutexHolder(i2cMutex) ? pcTaskGetTaskName(xSemaphoreGetMutexHolder(i2cMutex)) : "None");
+      resetI2CBus();
+    }
+  }
+}
 
 void taskGetTime(void *pvParameters)
 {
@@ -1407,7 +1446,7 @@ void syncButtonState(int buttonId, TaskHandle_t taskHandle) {
 
 // Отправка данных о состоянии кнопок на Nextion
 void sendPage2Data() {
-  syncButtonState(0, taskWebServerHandle);
+  syncButtonState(0, taskGeomagneticHandle);
   syncButtonState(1, taskNRF905Handle);
   syncButtonState(2, taskCO2ReadHandle);
   syncButtonState(3, processNextionTaskHandle);
@@ -1961,8 +2000,7 @@ void setup()
   server.addHandler(&webSocket1);
   webSocket.onEvent(onWsEvent);
   webSocket1.onEvent(onWsEvent1);
-
-  webServerRunning = true;
+  
   //Serial.setDebugOutput(true);
 
   nextionRestart();
@@ -1988,12 +2026,12 @@ void setup()
       ESP_LOGI("INIT", "BME280 detected");
   }
 
-  // if (!mag.begin()) {
-  //     ESP_LOGE("INIT", "HMC5883L not detected. Please check wiring!");
-  //   } else {
-  //     ESP_LOGI("INIT", "HMC5883L detected. Starting GeomagneticTask");
-  //     xTaskCreatePinnedToCore(taskGeomagnetic, "GeomagneticTask", 2048, NULL, 2, NULL, 1);
-  // }
+  if (!mmc.begin()) {
+      ESP_LOGE("INIT", "MMC5603 not detected. Please check wiring!");
+    } else {
+      ESP_LOGI("INIT", "MMC5603 detected. Starting GeomagneticTask");
+      xTaskCreatePinnedToCore(taskGeomagnetic, "GeomagneticTask", 4096, NULL, 2, &taskGeomagneticHandle, 1);
+  }
 
   if (!ens160.begin()) {
       ESP_LOGE("INIT", "ENS160 not detected. Please check wiring!");
@@ -2058,7 +2096,7 @@ void setup()
 
   xTaskCreate(taskNRF905, "NRF905 Receiver", 4096, NULL, 5, &taskNRF905Handle);
   xTaskCreate(taskBMP280, "BMP280 Sensor", 2048, NULL, 4, &taskBMP280Handle);
-  //xTaskCreatePinnedToCore(taskGeomagnetic, "GeomagneticTask", 2048, NULL, 2, NULL, 1);
+  //xTaskCreatePinnedToCore(taskGeomagnetic, "GeomagneticTask", 4096, NULL, 2, &taskGeomagneticHandle, 1);
   xTaskCreate(taskCO2Read, "CO2 read task", 2048, NULL, 3, &taskCO2ReadHandle);
   xTaskCreate(taskTVOCRead, "ENS160 read task", 4096, NULL, 2, &taskTVOCReadHandle);
   xTaskCreate(taskGetTime, "Get NTP Time", 4096, NULL, 2, &taskGetTimeHandle);

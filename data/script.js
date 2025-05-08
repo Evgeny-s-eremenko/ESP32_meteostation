@@ -122,6 +122,7 @@ function updateTable(data) {
     document.getElementById("homeDP").textContent = data.homeDP.toFixed(2) + " °C";
     document.getElementById("CO2").textContent = data.CO2.toFixed(2) + " ppm";
     document.getElementById("TVOC").textContent = data.TVOC.toFixed(2) + " ppb";
+    document.getElementById("GEO").textContent = data.GEO.toFixed(2) + " uT";
 
     // Обновляем индикаторы
     updateIndicator(data.temperature, -35, 35, 'temperatureBar'); // Температура на улице

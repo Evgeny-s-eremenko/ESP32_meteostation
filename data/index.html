@@ -112,6 +112,15 @@
             height: 80px;
         }
 
+        #GEOIcon {
+            position: absolute;
+            left: 20px;
+            top: 41%;
+            transform: translateY(-55%);
+            width: 121px;
+            height: 80px;
+        }
+
         #TVOCIcon {
             position: absolute;
             left: 20px;
@@ -419,6 +428,15 @@
             </div>
         </div>
         <div class="pressure-widget">
+            <h2>Геомагнитное поле</h2>
+            <img id="GEOIcon" src="/geomagnetic.png" alt="GEO Icon">
+            <div class="value" id="GEO"></div>
+            <div class="label">Модуль поля</div>
+            <!--div class="progress-bar">
+                <div class="progress-bar-fill" id="CO2Bar"></div>
+            </div-->
+        </div>
+        <div class="pressure-widget">
             <h2>CO2</h2>
             <img id="CO2Icon" src="/CO2_green.png" alt="CO2 Icon">
             <div class="value" id="CO2"></div>
@@ -451,7 +469,7 @@
             <button type="submit" id="Button" class="widget">About</button>
         </form>
     </div>
-    <script src="/d3.v7.min.js"></script>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
     <script src="/script.js"></script>
     <script src="/sunset.js"></script>
 </body>

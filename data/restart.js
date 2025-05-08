@@ -18,7 +18,7 @@ const socket = new WebSocket("ws://" + location.hostname + "/ws");
 socket.onmessage = function (event) {
   try {
     const data = JSON.parse(event.data);
-    updateButtonState("TaskWebServer", data.webServer);
+    updateButtonState("TaskGeomagnetic", data.Geomagnetic);
     updateButtonState("TaskNRF905", data.nRF905);
     updateButtonState("TaskCO2", data.CO2);
     updateButtonState("TaskNextion", data.nextion);
@@ -38,7 +38,7 @@ async function fetchTaskStates() {
     if (!response.ok) throw new Error(`Ошибка: ${response.status}`);
     
     const data = await response.json();
-    updateButtonState("TaskWebServer", data.webServer);
+    updateButtonState("TaskGeomagnetic", data.Geomagnetic);
     updateButtonState("TaskNRF905", data.nRF905);
     updateButtonState("TaskCO2", data.CO2);
     updateButtonState("TaskNextion", data.nextion);
@@ -75,7 +75,7 @@ function toggleTask(task) {
   }).catch(error => console.error("Ошибка:", error));
 }
 
-  document.getElementById("btnTaskWebServer").addEventListener("click", () => toggleTask("webServer"));
+  document.getElementById("btnTaskGeomagnetic").addEventListener("click", () => toggleTask("Geomagnetic"));
   document.getElementById("btnTaskNRF905").addEventListener("click", () => toggleTask("nRF905"));
   document.getElementById("btnTaskCO2").addEventListener("click", () => toggleTask("CO2"));
   document.getElementById("btnTaskNextion").addEventListener("click", () => toggleTask("nextion"));
