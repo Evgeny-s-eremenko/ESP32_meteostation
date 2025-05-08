@@ -758,7 +758,12 @@ void sendDataToInfluxDB()
 
     if (ECO2 != -1)
     {
-        offset += snprintf(influxDBLine + offset, sizeof(influxDBLine) - offset, "ECO2=%d", ECO2);
+        offset += snprintf(influxDBLine + offset, sizeof(influxDBLine) - offset, "ECO2=%d,", ECO2);
+    }
+
+    if (filteredB != 0.0f)
+    {
+        offset += snprintf(influxDBLine + offset, sizeof(influxDBLine) - offset, "B=%.2f", filteredB);
     }
 
     // Убираем последнюю запятую, если она есть
