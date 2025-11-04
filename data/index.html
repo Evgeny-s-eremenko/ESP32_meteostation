@@ -338,6 +338,26 @@
             text-align: center;
             font-size: 16px;
         }
+
+        .lux-data,
+        .uv-data {
+            position: absolute;
+            top: 50%;
+            transform: translateY(-50%);
+            font-size: 16px;
+            width: 80px;
+            text-align: center;
+        }
+
+        .lux-data {
+            left: -90px;
+            top: 20px;
+        }
+
+        .uv-data {
+            right: -90px;
+            top: 20px;
+        }
     </style>
 </head>
 
@@ -410,10 +430,17 @@
                 <div class="progress-bar-fill" id="pressureBar"></div>
             </div>
         </div>
-        <div class="sunset-widget">
-            <!-- Верхняя часть -->
+        <div class="sunset-widget">            
             <div class="top-row">
-                <div class="sunrise-label" id="sunriseLabel"></div>
+                <div class="lux-data">
+                    <div>Освещенность</div>
+                    <div id="LUX"></div>                    
+                </div>
+                <div class="uv-data">
+                    <div>УФ-индекс</div>
+                    <div id="UV"></div>                    
+                </div>
+                <div class="sunrise-label" id="sunriseLabel"></div>        
                 <div id="sunArcWrapper">
                     <div id="sunArc">
                         <div class="horizon"></div>
@@ -422,7 +449,6 @@
                 </div>
                 <div class="sunset-label" id="sunsetLabel"></div>
             </div>
-            <!-- Нижняя часть -->
             <div class="bottom-row">
                 <div id="currentDateTime"></div>
             </div>
@@ -469,7 +495,7 @@
             <button type="submit" id="Button" class="widget">About</button>
         </form>
     </div>
-    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <script src="/d3-local-maps.js"></script>
     <script src="/script.js"></script>
     <script src="/sunset.js"></script>
 </body>

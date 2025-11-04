@@ -20,20 +20,20 @@ function getColor(value, min, max) {
     const t = (value - min) / (max - min);
     // d3.interpolateRdYlBu выдаёт цвет при t=0 красный, t=1 синий,
     // поэтому, чтобы получить синий при низком значении и красный при высоком, переворачиваем t:
-    return d3.interpolateRdYlBu(1 - t);
+    return localInterpolateRdYlBu(1 - t);
 }
 
 function getColorAirQuality(value, min, max) {
     const t = (value - min) / (max - min);
     // d3.interpolateRdYlBu выдаёт цвет при t=0 красный, t=1 синий,
     // поэтому, чтобы получить синий при низком значении и красный при высоком, переворачиваем t:
-    return d3.interpolateRdYlGn(1 - t);
+    return localInterpolateRdYlGn(1 - t);
 }
 
 function getColorHumidity(value, min, max) {
     let t = (value - min) / (max - min);
     t = 0.3 + t * 0.3; // Масштабируем t в диапазон [0.5, 1]
-    return d3.interpolateRdYlBu(t);
+    return localInterpolateRdYlBu(t);
 }
 
 function updateIndicator(value, min, max, elementId) {
@@ -123,6 +123,8 @@ function updateTable(data) {
     document.getElementById("CO2").textContent = data.CO2.toFixed(2) + " ppm";
     document.getElementById("TVOC").textContent = data.TVOC.toFixed(2) + " ppb";
     document.getElementById("GEO").textContent = data.GEO.toFixed(2) + " uT";
+    document.getElementById("LUX").textContent = data.LUX.toFixed(1) + " lux";
+    document.getElementById("UV").textContent = data.UV.toFixed(2);
 
     // Обновляем индикаторы
     updateIndicator(data.temperature, -35, 35, 'temperatureBar'); // Температура на улице
