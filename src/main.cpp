@@ -18,7 +18,7 @@
 #include <AsyncTCP.h>
 #include <esp_log.h>
 #include <math.h>
-
+#include <PubSubClient.h>
 
 
 
@@ -38,6 +38,19 @@ const int   daylightOffset_sec = 0;
 const char* influxDBHost = "REMOVED";
 const int influxDBPort = 8086;
 const char* influxDBDatabase = "REMOVED";
+
+// --------------------- Настройки MQTT ---------------------
+const char* mqtt_server = "mqtt.onemesh.ru";
+const int mqtt_port = 1883;
+const char* mqtt_user = "onemeshd";
+const char* mqtt_password = "onecat";
+const char* mqtt_topic = "msh/RU/KNA/2/json/mqtt/!";
+const uint32_t node_id = 4134570736;
+
+WiFiClient espClient;
+PubSubClient client(espClient);
+
+static const char* TAG = "WEATHER_MQTT";
 
 // Дескрипторы задач
 extern TaskHandle_t taskNRF905Handle = NULL;
@@ -138,7 +151,6 @@ volatile uint8_t fanStatus = 0;
 #define ST_FAN_ON   0x01
 
 
-
 // -------------------------- Объявления функций (прототипы) --------------------------
 void switchTaskTVOCRead();
 void switchTaskBMP280();
@@ -160,6 +172,7 @@ void taskBMP280(void *pvParameters);
 void taskTVOCRead(void *pvParameters);
 void taskSendDataToInfluxDB(void *pvParameters);
 void taskGeomagnetic(void *pvParameters);
+void MeshtasticTask(void *pvParameters);
 float calculateDewPoint(float temperature, float humidity);
 
 // --------------------------- Глобальные переменные ---------------------------
@@ -175,9 +188,9 @@ float es(float tempC) {
   return 6.112f * exp((17.67f * tempC) / (tempC + 243.5f));
 }
 
-const float tempCompensationSlope = 3.85f;  // uT/°C
+const float tempCompensationSlope = 3.65f;  // uT/°C
 const float tempReference = 25.0f;          // °C, точка отсчета (выбери любую, например, 25)
-const float magOffset = -50.0f; // uT, смещение для калибровки
+const float magOffset = -40.0f; // uT, смещение для калибровки
 float forecast = 0;
 int month = -1;
 volatile int ppm = 400;
@@ -772,7 +785,7 @@ void sendDataToInfluxDB()
             separator = ",";
         }
 
-        if (dewPoint != 0.0f)
+        if (dewPoint != 0.0f && nan)
         {
             offset += snprintf(influxDBLine + offset, sizeof(influxDBLine) - offset, "%sdewPoint=%.2f", separator, dewPoint);
             separator = ",";
@@ -812,7 +825,7 @@ void sendDataToInfluxDB()
         separator = ",";
     }
 
-    if (homeDP != 0.0f)
+    if (homeDP != 0.0f && nan)
     {
         offset += snprintf(influxDBLine + offset, sizeof(influxDBLine) - offset, "%shomeDP=%.2f", separator, homeDP);
         separator = ",";
@@ -847,19 +860,19 @@ void sendDataToInfluxDB()
     }
 
     // --- Магнитометр ---
-    if (filteredB != 0.0f)
+    if (filteredB != 0.0f && nan)
     {
         offset += snprintf(influxDBLine + offset, sizeof(influxDBLine) - offset, "%sB=%.2f", separator, filteredB);
         separator = ",";
     }
 
-    if (B != 0.0f)
+    if (B != 0.0f && nan)
     {
         offset += snprintf(influxDBLine + offset, sizeof(influxDBLine) - offset, "%srawB=%.2f", separator, B);
         separator = ",";
     }
 
-    if (magTemp != 0.0f)
+    if (magTemp != 0.0f && nan)
     {
         offset += snprintf(influxDBLine + offset, sizeof(influxDBLine) - offset, "%smagTemp=%.2f", separator, magTemp);
         separator = ",";
@@ -1470,7 +1483,7 @@ void taskGeomagnetic(void *pvParameters) {
       float sumMagTemp = 0.0f;
       const int samples = 10;
       for (int i = 0; i < samples; i++) {
-        sumMagTemp += bme.readTemperature();
+        sumMagTemp += mmc.readTemperature();
         vTaskDelay(pdMS_TO_TICKS(100));  // 10 мс пауза между измерениями
       }
       magTemp = sumMagTemp / samples;
@@ -1982,6 +1995,129 @@ void taskTVOCRead(void *pvParameters)
     }
 }
 
+// ------------ Мештастик MQTT -----------------------------------------
+// --------------------- Функция определения тренда давления ---------------------
+const char* getTrendText(float tr) {
+    if (tr < -2.8)      return "быстро падает";
+    else if (tr < -1.8) return "падает";
+    else if (tr < -0.7) return "слабо падает";
+    else if (tr <= 0.7) return "стабильно";
+    else if (tr <= 1.8) return "слабо растет";
+    else if (tr <= 2.8) return "растет";
+    else                return "быстро растет";
+}
+
+// --------------------- Функция формирования строки метеосводки ---------------------
+void buildWeatherString(char *buffer, size_t size)
+{
+    float temp, hum, dew, pres, tr, uv, lux, pm;
+    int currentMonth;
+    
+    portENTER_CRITICAL(&mutexMux);
+    temp = temperature;
+    hum = humidity;
+    dew = dewPoint;
+    pres = pressure;
+    tr = trend;
+    uv = uvIndex;
+    lux = luxLevel;
+    pm = pm25Level;
+    currentMonth = month;
+    taskEXIT_CRITICAL(&mutexMux);
+
+    const char* trendText = getTrendText(tr);
+
+    snprintf(buffer, size,
+            "Погода в К-н-А: Темп %.1fC | Влажн %.0f%% | Т.росы %.1fC | Давл %.0f гПа (%s) | PM2.5 %.1f мкг/м3 | % .0f lx | UV %.1f",
+            temp, hum, dew, pres, trendText, pm, lux, uv
+    );
+    
+    ESP_LOGD(TAG, "Сформирована строка погоды, месяц: %d", currentMonth);
+}
+
+// --------------------- Отправка сообщения ---------------------
+bool sendWeatherMessage() {
+    // Проверяем WiFi перед тем как ломиться в MQTT
+    if (WiFi.status() != WL_CONNECTED) {
+        ESP_LOGE(TAG, "Нет подключения к WiFi. Пропуск отправки.");
+        return false;
+    }
+
+    if (!client.connected()) {
+        String clientId = "ESP32Weather-";
+        clientId += String(esp_random(), HEX);
+
+        if (!client.connect(clientId.c_str(), mqtt_user, mqtt_password)) {
+            ESP_LOGE(TAG, "Ошибка MQTT: %d", client.state());
+            return false;
+        }
+    }
+
+    char text_buf[350]; // Взял с запасом
+    char payload_buf[512];
+
+    buildWeatherString(text_buf, sizeof(text_buf));
+
+    // ИСПРАВЛЕНО: Правильный JSON формат для Meshtastic
+    snprintf(payload_buf, sizeof(payload_buf),
+             "{\"from\":%u,\"type\":\"sendtext\",\"payload\":\"%s\"}",
+             node_id, text_buf);
+
+    bool success = client.publish(mqtt_topic, payload_buf);
+    
+    if (success) {
+        ESP_LOGI(TAG, "Успешно отправлено!");
+        ESP_LOGI(TAG, "MQTT topic: %s", mqtt_topic);
+        ESP_LOGI(TAG, "Payload: %s", payload_buf);
+    } else {
+        ESP_LOGE(TAG, "Ошибка публикации (возможно, пакет слишком большой)");
+    }
+
+    // ИСПРАВЛЕНО: Закрываем соединение чисто, так как мы спим целый час
+    client.disconnect(); 
+    return success;
+}
+
+// --------------------- Задача FreeRTOS ---------------------
+void taskWeatherMQTT(void *pvParameters) {
+    client.setServer(mqtt_server, mqtt_port);
+    // ИСПРАВЛЕНО: Явно задаем большой буфер в runtime
+    client.setBufferSize(1024); 
+
+    // Ожидание синхронизации времени...
+    vTaskDelay(pdMS_TO_TICKS(5000));
+    
+    time_t now = time(nullptr);
+    while (now < 100000) {
+        vTaskDelay(pdMS_TO_TICKS(5000));
+        now = time(nullptr);
+    }
+
+    // Отправка отладочного сообщения
+    vTaskDelay(pdMS_TO_TICKS(15000));
+    sendWeatherMessage();
+
+    while (1) {
+        now = time(nullptr);
+        struct tm timeinfo;
+        localtime_r(&now, &timeinfo);
+
+        timeinfo.tm_min = 0;
+        timeinfo.tm_sec = 0;
+        timeinfo.tm_hour += 1;
+        time_t next_hour = mktime(&timeinfo);
+
+        int delay_seconds = next_hour - now;
+        if (delay_seconds > 0) {
+            vTaskDelay(pdMS_TO_TICKS(delay_seconds * 1000));
+        }
+
+        sendWeatherMessage();
+    }
+}
+
+
+
 void reconnectWiFi() {
   uint32_t currentCooldown = SHORT_COOLDOWN;
   // Если предыдущая попытка была последней в цикле (3-я, 6-я, 9-я), установить длительный перерыв
@@ -2311,6 +2447,7 @@ void setup()
   xTaskCreate(processNextionTask, "Nextion", 4096, NULL, 3, &processNextionTaskHandle);
   //xTaskCreate(memory_task, "Memory Monitor", 4096, NULL, 1, NULL);
   xTaskCreatePinnedToCore(wifi_monitor_task, "WiFiMonitor", 2048, NULL, 2, NULL, 0);
+  //xTaskCreate(taskWeatherMQTT, "WeatherMQTT", 4096, NULL, 1, NULL);
 }
 
 // ----------------------------- Main loop -----------------------------
