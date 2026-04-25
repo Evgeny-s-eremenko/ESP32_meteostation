@@ -239,7 +239,7 @@ float calculatehomeDP(float homeTemp, float homeHum)
 {
   float a = 17.27;
   float b = 237.7;
-  float alpha = ((a * homeTemp) / (b + homeHum)) + log(homeHum / 100.0);
+  float alpha = ((a * homeTemp) / (b + homeTemp)) + log(homeHum / 100.0);
   return (b * alpha) / (a - alpha);
 }
 
