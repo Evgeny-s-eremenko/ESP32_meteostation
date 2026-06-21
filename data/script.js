@@ -7,7 +7,7 @@ window.addEventListener('DOMContentLoaded', () => {
 
     if (currentHost.startsWith("192.168.1.")) {
       // Локальная сеть
-      iframeSrc = "http://REMOVED:3000/public-dashboards/8540a49c692f4ba7841a2228b102d203";
+      iframeSrc = "http://192.168.1.214:3000/public-dashboards/8540a49c692f4ba7841a2228b102d203";
     } else {
       // Внешний доступ (домены или публичный IP)
       iframeSrc = "http://62.33.134.164:3000/public-dashboards/8540a49c692f4ba7841a2228b102d203";

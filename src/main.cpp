@@ -430,7 +430,7 @@ void handleUpdateEnd(AsyncWebServerRequest *request) {
 
 void handleAdmin(AsyncWebServerRequest *request) {
   if (!isAuthenticated(request)) return;
-  request->send(LittleFS, "/REMOVED.html", "text/html");
+  request->send(LittleFS, "/admin.html", "text/html");
 }
 
 void handleAbout(AsyncWebServerRequest *request) {
@@ -2183,7 +2183,7 @@ void setup()
   server.on("/", HTTP_ANY, [](AsyncWebServerRequest *request){
     handleRoot(request);
   });
-  server.on("/REMOVED", HTTP_POST, [](AsyncWebServerRequest *request){
+  server.on("/admin", HTTP_POST, [](AsyncWebServerRequest *request){
     handleAdmin(request);
   });
   server.on("/about", HTTP_POST, [](AsyncWebServerRequest *request){
