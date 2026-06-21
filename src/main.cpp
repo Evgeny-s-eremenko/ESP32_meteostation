@@ -19,38 +19,31 @@
 #include <esp_log.h>
 #include <math.h>
 #include <PubSubClient.h>
+#include "secrets.h"
 
 
 
 
 // ----------------------------- Wi-Fi и сервер -----------------------------
-const char *ssid = "REMOVED";
-const char *password = "REMOVED";
-const char* http_username = "evgen";  // Логин для доступа
-const char* http_password = "REMOVED";   // Пароль для доступа
+const char *ssid = SECRET_WIFI_SSID;
+const char *password = SECRET_WIFI_PASSWORD;
+const char* http_username = SECRET_HTTP_USER;
+const char* http_password = SECRET_HTTP_PASSWORD;
 
 // Настройка NTP-сервера
-const char* ntpServer = "pool.ntp.org";
-const long  gmtOffset_sec = 3600 * 10; // Смещение для Komsomolsk-on-Amur (GMT+10)
+const char* ntpServer = SECRET_NTP_SERVER;
+const long  gmtOffset_sec = SECRET_TZ_OFFSET_SEC; // Смещение для Komsomolsk-on-Amur (GMT+10)
 const int   daylightOffset_sec = 0;
 
 // Параметры InfluxDB
-const char* influxDBHost = "REMOVED";
-const int influxDBPort = 8086;
-const char* influxDBDatabase = "REMOVED";
+const char* influxDBHost = SECRET_INFLUX_HOST;
+const int influxDBPort = SECRET_INFLUX_PORT;
+const char* influxDBDatabase = SECRET_INFLUX_DATABASE;
 
-// --------------------- Настройки MQTT ---------------------
-const char* mqtt_server = "mqtt.onemesh.ru";
-const int mqtt_port = 1883;
-const char* mqtt_user = "onemeshd";
-const char* mqtt_password = "onecat";
-const char* mqtt_topic = "msh/RU/KNA/2/json/mqtt/!";
-const uint32_t node_id = 4134570736;
 
 WiFiClient espClient;
 PubSubClient client(espClient);
 
-static const char* TAG = "WEATHER_MQTT";
 
 // Дескрипторы задач
 extern TaskHandle_t taskNRF905Handle = NULL;
@@ -477,7 +470,7 @@ void resetNRF905() {
   if (xSemaphoreTake(driverMutex, portMAX_DELAY) == pdTRUE) {
     if (driver.init()) {
         ESP_LOGW("NRF905", "nRF905 reinitialized successfully.");
-        driver.setChannel(175, false); // Канал 175 = 439.9 МГц
+        driver.setChannel(175, false); // Канал 175 = 439,9 МГц
         driver.setRF(RH_NRF905::TransmitPowerm10dBm);
         // Другие необходимые настройки...
       } else {
@@ -1995,128 +1988,6 @@ void taskTVOCRead(void *pvParameters)
     }
 }
 
-// ------------ Мештастик MQTT -----------------------------------------
-// --------------------- Функция определения тренда давления ---------------------
-const char* getTrendText(float tr) {
-    if (tr < -2.8)      return "быстро падает";
-    else if (tr < -1.8) return "падает";
-    else if (tr < -0.7) return "слабо падает";
-    else if (tr <= 0.7) return "стабильно";
-    else if (tr <= 1.8) return "слабо растет";
-    else if (tr <= 2.8) return "растет";
-    else                return "быстро растет";
-}
-
-// --------------------- Функция формирования строки метеосводки ---------------------
-void buildWeatherString(char *buffer, size_t size)
-{
-    float temp, hum, dew, pres, tr, uv, lux, pm;
-    int currentMonth;
-    
-    portENTER_CRITICAL(&mutexMux);
-    temp = temperature;
-    hum = humidity;
-    dew = dewPoint;
-    pres = pressure;
-    tr = trend;
-    uv = uvIndex;
-    lux = luxLevel;
-    pm = pm25Level;
-    currentMonth = month;
-    taskEXIT_CRITICAL(&mutexMux);
-
-    const char* trendText = getTrendText(tr);
-
-    snprintf(buffer, size,
-            "Погода в К-н-А: Темп %.1fC | Влажн %.0f%% | Т.росы %.1fC | Давл %.0f гПа (%s) | PM2.5 %.1f мкг/м3 | % .0f lx | UV %.1f",
-            temp, hum, dew, pres, trendText, pm, lux, uv
-    );
-    
-    ESP_LOGD(TAG, "Сформирована строка погоды, месяц: %d", currentMonth);
-}
-
-// --------------------- Отправка сообщения ---------------------
-bool sendWeatherMessage() {
-    // Проверяем WiFi перед тем как ломиться в MQTT
-    if (WiFi.status() != WL_CONNECTED) {
-        ESP_LOGE(TAG, "Нет подключения к WiFi. Пропуск отправки.");
-        return false;
-    }
-
-    if (!client.connected()) {
-        String clientId = "ESP32Weather-";
-        clientId += String(esp_random(), HEX);
-
-        if (!client.connect(clientId.c_str(), mqtt_user, mqtt_password)) {
-            ESP_LOGE(TAG, "Ошибка MQTT: %d", client.state());
-            return false;
-        }
-    }
-
-    char text_buf[350]; // Взял с запасом
-    char payload_buf[512];
-
-    buildWeatherString(text_buf, sizeof(text_buf));
-
-    // ИСПРАВЛЕНО: Правильный JSON формат для Meshtastic
-    snprintf(payload_buf, sizeof(payload_buf),
-             "{\"from\":%u,\"type\":\"sendtext\",\"payload\":\"%s\"}",
-             node_id, text_buf);
-
-    bool success = client.publish(mqtt_topic, payload_buf);
-    
-    if (success) {
-        ESP_LOGI(TAG, "Успешно отправлено!");
-        ESP_LOGI(TAG, "MQTT topic: %s", mqtt_topic);
-        ESP_LOGI(TAG, "Payload: %s", payload_buf);
-    } else {
-        ESP_LOGE(TAG, "Ошибка публикации (возможно, пакет слишком большой)");
-    }
-
-    // ИСПРАВЛЕНО: Закрываем соединение чисто, так как мы спим целый час
-    client.disconnect(); 
-    return success;
-}
-
-// --------------------- Задача FreeRTOS ---------------------
-void taskWeatherMQTT(void *pvParameters) {
-    client.setServer(mqtt_server, mqtt_port);
-    // ИСПРАВЛЕНО: Явно задаем большой буфер в runtime
-    client.setBufferSize(1024); 
-
-    // Ожидание синхронизации времени...
-    vTaskDelay(pdMS_TO_TICKS(5000));
-    
-    time_t now = time(nullptr);
-    while (now < 100000) {
-        vTaskDelay(pdMS_TO_TICKS(5000));
-        now = time(nullptr);
-    }
-
-    // Отправка отладочного сообщения
-    vTaskDelay(pdMS_TO_TICKS(15000));
-    sendWeatherMessage();
-
-    while (1) {
-        now = time(nullptr);
-        struct tm timeinfo;
-        localtime_r(&now, &timeinfo);
-
-        timeinfo.tm_min = 0;
-        timeinfo.tm_sec = 0;
-        timeinfo.tm_hour += 1;
-        time_t next_hour = mktime(&timeinfo);
-
-        int delay_seconds = next_hour - now;
-        if (delay_seconds > 0) {
-            vTaskDelay(pdMS_TO_TICKS(delay_seconds * 1000));
-        }
-
-        sendWeatherMessage();
-    }
-}
-
-
 
 void reconnectWiFi() {
   uint32_t currentCooldown = SHORT_COOLDOWN;
@@ -2447,7 +2318,6 @@ void setup()
   xTaskCreate(processNextionTask, "Nextion", 4096, NULL, 3, &processNextionTaskHandle);
   //xTaskCreate(memory_task, "Memory Monitor", 4096, NULL, 1, NULL);
   xTaskCreatePinnedToCore(wifi_monitor_task, "WiFiMonitor", 2048, NULL, 2, NULL, 0);
-  //xTaskCreate(taskWeatherMQTT, "WeatherMQTT", 4096, NULL, 1, NULL);
 }
 
 // ----------------------------- Main loop -----------------------------
