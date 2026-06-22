@@ -1361,24 +1361,33 @@ void taskSendDataToInfluxDB(void *pvParameters)
 
 void taskNRF905(void *pvParameters) {
   unsigned long lastReceived = millis();
-  const uint8_t EXPECTED_PACKET_LENGTH = 17; // Длина нового пакета (2 статуса + 14 данных + 1 CRC)
-
+ 
+  // Новая длина пакета: +1 байт burst_id в начале
+  const uint8_t EXPECTED_PACKET_LENGTH = 18;
+ 
+  // Инициализируем 0xFF — STM32 начинает счётчик с 0,
+  // поэтому первый принятый пакет (id=0) гарантированно не будет дубликатом.
+  uint8_t last_burst_id = 0xFF;
+ 
   while (true) {
     if (xSemaphoreTake(driverMutex, portMAX_DELAY) == pdTRUE) {
       if (driver.available()) {
         uint8_t buf[RH_NRF905_MAX_MESSAGE_LEN];
         uint8_t len = sizeof(buf);
-
+ 
         if (driver.recv(buf, &len)) {
-          // 1. Проверка длины пакета. Теперь она всегда фиксированная.
+ 
+          // ── 1. Проверка длины ──────────────────────────────
           if (len != EXPECTED_PACKET_LENGTH) {
-            ESP_LOGW("NRF905", "Incorrect packet length. Expected %d, got %d", EXPECTED_PACKET_LENGTH, len);
+            ESP_LOGW("NRF905", "Incorrect packet length. Expected %d, got %d",
+                     EXPECTED_PACKET_LENGTH, len);
             xSemaphoreGive(driverMutex);
             vTaskDelay(100 / portTICK_PERIOD_MS);
             continue;
           }
-
-          // 2. Проверка CRC
+ 
+          // ── 2. Проверка CRC ────────────────────────────────
+          // CRC считается по байтам 0..(len-2), включая burst_id
           uint8_t crc = buf[len - 1];
           if (calcChecksum(buf, len - 1) != crc) {
             ESP_LOGW("NRF905", "CRC mismatch");
@@ -1386,47 +1395,84 @@ void taskNRF905(void *pvParameters) {
             vTaskDelay(100 / portTICK_PERIOD_MS);
             continue;
           }
-
-          // 3. Последовательное чтение данных. PID больше нет.
-          // Используем указатель для удобства.
-          const uint8_t *p = buf;
-
-          // Читаем статусы
-          heaterStatus = *p++; // Байт 0
-          fanStatus = *p++;    // Байт 1
-
-          // Читаем данные датчиков
-          int16_t rawT = (int16_t)(p[0] | (p[1] << 8)); p += 2;
-          uint16_t rawH = (uint16_t)(p[0] | (p[1] << 8)); p += 2;
-          uint16_t rawUV = (uint16_t)(p[0] | (p[1] << 8)); p += 2;
-          uint32_t rawLux = (uint32_t)(p[0] | (p[1] << 8) | (p[2] << 16) | (p[3] << 24)); p += 4;
-          uint16_t rawPM25 = (uint16_t)(p[0] | (p[1] << 8)); p += 2;
-          uint16_t rawPM10 = (uint16_t)(p[0] | (p[1] << 8)); p += 2;
-          
-          // 4. Обновляем глобальные переменные
-          temperature = rawT / 100.0f;
-          humidity = rawH / 100.0f;
-          uvIndex = rawUV / 100.0f;
-          luxLevel = rawLux / 100.0f;
-          pm25Level = rawPM25 / 10.0f; // Делитель 10
-          pm10Level = rawPM10 / 10.0f; // Делитель 10
-          dewPoint = calculateDewPoint(temperature, humidity);
-
+ 
+          // ── 3. Дедупликация по burst_id ────────────────────
+          // Все копии одного burst имеют одинаковый burst_id.
+          // Принимаем только первый дошедший с правильным CRC,
+          // остальные — дубликаты, игнорируем.
+          uint8_t burst_id = buf[0];
+          if (burst_id == last_burst_id) {
+            ESP_LOGD("NRF905", "Дубликат burst (id=%u) — пропущен", burst_id);
+            xSemaphoreGive(driverMutex);
+            vTaskDelay(100 / portTICK_PERIOD_MS);
+            continue;
+          }
+          last_burst_id = burst_id;
+ 
+          // ── 4. Парсинг данных ──────────────────────────────
+          // Начинаем с buf+1, пропуская burst_id (байт 0).
+          // Порядок байт соответствует STM32 sendBinaryPacket().
+          const uint8_t *p = buf + 1;
+ 
+          heaterStatus = *p++;   // Байт 1
+          fanStatus    = *p++;   // Байт 2
+ 
+          // Байты 3–4: температура (int16_t)
+          int16_t rawT = (int16_t)((uint16_t)p[0] | ((uint16_t)p[1] << 8));
+          p += 2;
+ 
+          // Байты 5–6: влажность
+          uint16_t rawH = (uint16_t)p[0] | ((uint16_t)p[1] << 8);
+          p += 2;
+ 
+          // Байты 7–8: UV-индекс
+          uint16_t rawUV = (uint16_t)p[0] | ((uint16_t)p[1] << 8);
+          p += 2;
+ 
+          // Байты 9–12: освещённость (uint32_t)
+          uint32_t rawLux = (uint32_t)p[0]
+                          | ((uint32_t)p[1] << 8)
+                          | ((uint32_t)p[2] << 16)
+                          | ((uint32_t)p[3] << 24);
+          p += 4;
+ 
+          // Байты 13–14: PM2.5
+          uint16_t rawPM25 = (uint16_t)p[0] | ((uint16_t)p[1] << 8);
+          p += 2;
+ 
+          // Байты 15–16: PM10
+          uint16_t rawPM10 = (uint16_t)p[0] | ((uint16_t)p[1] << 8);
+          p += 2;
+ 
+          // Распаковка
+          temperature = rawT    / 100.0f;
+          humidity    = rawH    / 100.0f;
+          uvIndex     = rawUV   / 100.0f;
+          luxLevel    = rawLux  / 100.0f;
+          pm25Level   = rawPM25 / 10.0f;
+          pm10Level   = rawPM10 / 10.0f;
+          dewPoint    = calculateDewPoint(temperature, humidity);
+ 
           lastReceived = millis();
-          ESP_LOGI("NRF905", "Parsed: H_STAT=%u, F_STAT=%u, T=%.2f, H=%.2f, UV=%.2f, LUX=%.1f, PM2.5=%.1f, PM10=%.1f",
-                   heaterStatus, fanStatus, temperature, humidity, uvIndex, luxLevel, pm25Level, pm10Level);
+ 
+          ESP_LOGI("NRF905",
+                   "OK [burst_id=%u]: H_STAT=%u F_STAT=%u "
+                   "T=%.2f H=%.2f UV=%.2f LUX=%.1f PM2.5=%.1f PM10=%.1f",
+                   burst_id, heaterStatus, fanStatus,
+                   temperature, humidity, uvIndex,
+                   luxLevel, pm25Level, pm10Level);
         }
       }
       xSemaphoreGive(driverMutex);
     }
-
-    // 5. Проверка таймаута получения данных (осталась без изменений)
+ 
+    // Таймаут: нет данных > 10 минут → аппаратный сброс nRF905
     if ((millis() - lastReceived) >= 600000) {
       ESP_LOGE("NRF905", "No data >10min, resetting NRF905...");
-      resetNRF905(); // Предполагается, что эта функция существует
+      resetNRF905();
       lastReceived = millis();
     }
-
+ 
     vTaskDelay(1000 / portTICK_PERIOD_MS);
   }
 }
