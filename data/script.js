@@ -12,7 +12,7 @@ window.addEventListener("DOMContentLoaded", () => {
 
     // Для локальной сети и внешнего доступа используются разные адреса
     iframe.src = host.startsWith("192.168.1.")
-        ? "http://192.168.1.XXX:3000/public-dashboards/8540a49c692f4ba7841a2228b102d203"
+        ? "http://192.168.1.214:3000/public-dashboards/8540a49c692f4ba7841a2228b102d203"
         : "http://62.33.134.164:3000/public-dashboards/8540a49c692f4ba7841a2228b102d203";
 });
 
