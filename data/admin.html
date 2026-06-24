@@ -1,6 +1,6 @@
 <!DOCTYPE html>
-<html>
-<meta charset='UTF-8'>
+<html lang="ru">
+<meta charset="UTF-8">
 <head>
     <title>ESP32 Admin</title>
     <style>
@@ -14,26 +14,27 @@
             margin: 0;
             padding: 20px;
         }
-		#setform {
-			background: #242749;
-			padding: 20px;
-			border-radius: 8px;
-			box-shadow: 0 2px 5px rgba(0,0,0,0.2);
-			max-width: 400px;
-			margin: auto;
-		}
-		label {
-			display: block;
-			margin-top: 10px;
-		}	
-		input[type="number"],
-		select {
-			width: 100%;
-			padding: 8px;
-			margin-top: 5px;
-			box-sizing: border-box;
-		}		
 
+        /* ── Форма настройки nRF905 ─────────────────────────── */
+        #setform {
+            background: #242749;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+            max-width: 400px;
+            margin: auto;
+        }
+
+        label { display: block; margin-top: 10px; }
+
+        input[type="number"], select {
+            width: 100%;
+            padding: 8px;
+            margin-top: 5px;
+            box-sizing: border-box;
+        }
+
+        /* ── Системные виджеты ──────────────────────────────── */
         .container {
             display: grid;
             grid-auto-flow: column;
@@ -42,18 +43,32 @@
             margin-bottom: 20px;
             justify-items: center;
         }
-        .buttons-container {
-            display: flex;
-            gap: 20px;
-            width: 100%;
-            max-width: 200px;
-            justify-content: center;
-            margin-top: 40px;
+
+        .widget {
+            width: 220px;
+            height: 124px;
+            font-size: 12px;
+            background-color: #242749;
+            color: #c7c7c7;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 2px 3px 1px rgba(0, 0, 0, 0.185);
+            text-align: center;
         }
 
+        .widget h2 { margin-top: 0; }
+
+        .value {
+            font-size: 10px;
+            color: #c7c7c7;
+            margin-top: 10px;
+            margin-bottom: 10px;
+        }
+
+        /* ── Кнопки-тумблеры задач ──────────────────────────── */
         .switches-container {
             display: grid;
-            grid-template-columns: repeat(5, 1fr);
+            grid-template-columns: repeat(4, 1fr);
             grid-gap: 20px;
             max-width: 800px;
         }
@@ -67,99 +82,57 @@
             cursor: pointer;
             box-shadow: 0 2px 3px 1px rgba(0, 0, 0, 0.185);
             transition: background-color 0.3s ease;
-        }
-        .running {
-            background-color: green;
-            color: #c7c7c7;
-        }
-        .stopped {
-            background-color: red;
             color: #c7c7c7;
         }
 
-        .widget-title {
-            grid-column: span 1;
-            text-align: center;
-            font-size: 24px;
-            margin-bottom: 10px;
+        .running { background-color: green; }
+        .stopped { background-color: red; }
+
+        /* ── Кнопки навигации и действий ────────────────────── */
+        .buttons-container {
+            display: flex;
+            gap: 20px;
+            justify-content: center;
+            margin-top: 40px;
         }
 
-        .widget {
-            width: 220px;
-            height: 124px;
-            font-size: 12px;
+        .action-button {
+            border: none;
+            outline: none;
             background-color: #242749;
             color: #c7c7c7;
-            border-radius: 10px;
-            padding: 20px;
-            box-shadow: 0 2px 3px 1px rgba(0, 0, 0, 0.185);
-            text-align: center;
-            max-height: 250px;
-        }
-        
-        .widget h2 {
-            margin-top: 0;
-        }
-
-        .value {
-            font-size: 10px;
-            color: #c7c7c7;
-            margin-top: 10px;
-            margin-bottom: 10px;            
-        }
-
-        #RestartButton {
-            border: none;            /* Убираем границу */
-            outline: none;           /* Убираем обводку при фокусе */
-            background-color: #242749; /* Фоновый цвет, который подходит под стиль остальных виджетов */
-            padding: 10px;       /* Отступы для удобства клика */
-            font-size: 12px;          /* Размер шрифта */
-            height: 50px;          /* Размер шрифта */
-            width: 90px;
-            cursor: pointer;          /* Курсор-рука при наведении */
-            transition: background-color 0.3s ease; /* Плавное изменение цвета при нажатии */
-        }
-
-        /* Изменение цвета при нажатии (активном состоянии) */
-        #RestartButton:hover {
-            background-color: #575eac;  /* Цвет при нажатии */
-        }
-        #Button {
-            border: none;            /* Убираем границу */
-            outline: none;           /* Убираем обводку при фокусе */
-            background-color: #242749; /* Фоновый цвет, который подходит под стиль остальных виджетов */
-            padding: 15px;       /* Отступы для удобства клика */
+            padding: 10px;
             font-size: 12px;
-            height: 50px;          /* Размер шрифта */
+            height: 50px;
             width: 90px;
-            cursor: pointer;          /* Курсор-рука при наведении */
-            transition: background-color 0.3s ease; /* Плавное изменение цвета при нажатии */
+            cursor: pointer;
+            border-radius: 6px;
+            transition: background-color 0.3s ease;
         }
 
-        /* Изменение цвета при нажатии (активном состоянии) */
-        #Button:hover {
-            background-color: #575eac;  /* Цвет при нажатии */
-        }
-		#Setbutton {
-			margin-top: 20px;
-			padding: 10px;
-			width: 100%;
-			border: none;
-			background: #414f8a;
-			color: #c7c7c7;
-			font-size: 14px;
-			cursor: pointer;
-			border-radius: 5px;
-			transition: background 0.3s ease;
-		}
-		#Setbutton:hover {
-			background: #575eac;
-		}
+        .action-button:hover { background-color: #575eac; }
 
+        /* ── Кнопка сохранения настроек nRF905 ─────────────── */
+        #Setbutton {
+            margin-top: 20px;
+            padding: 10px;
+            width: 100%;
+            border: none;
+            background: #414f8a;
+            color: #c7c7c7;
+            font-size: 14px;
+            cursor: pointer;
+            border-radius: 5px;
+            transition: background 0.3s ease;
+        }
+
+        #Setbutton:hover { background: #575eac; }
     </style>
 </head>
 <body>
     <h1>Настройки и системная информация</h1>
+
+    <!-- Системные виджеты -->
     <div class="container">
         <div class="widget">
             <h2>System Info</h2>
@@ -174,57 +147,61 @@
             <div class="value" id="nrf905Status"></div>
         </div>
     </div>
+
+    <!-- Таск-менеджер -->
     <h2>Управление задачами</h2>
     <div class="switches-container">
-        <button id="btnTaskGeomagnetic" class="toggle-button stopped">Geomagnetic task Stopped</button>
-        <button id="btnTaskNRF905" class="toggle-button stopped">nRF905 task Stopped</button>
-        <button id="btnTaskCO2" class="toggle-button stopped">CO2 task Stopped</button>
-        <button id="btnTaskNextion" class="toggle-button stopped">Nextion task Stopped</button>
-        <button id="btnTaskBMP280" class="toggle-button stopped">BMP280 task Stopped</button>
-        <button id="btnTaskInfluxDB" class="toggle-button stopped">InfluxDB task Stopped</button>
-        <button id="btnTaskForecaster" class="toggle-button stopped">Forecast task Stopped</button>
-        <button id="btnTaskNTP" class="toggle-button stopped">NTP task Stopped</button>
-        <button id="btnTaskTVOC" class="toggle-button stopped">TVOC task Stopped</button>
-        <button id="btnTaskRTC" class="toggle-button stopped">RTC task Stopped</button>
+        <button id="btnTaskNRF905"    class="toggle-button stopped">nRF905 Stopped</button>
+        <button id="btnTaskCO2"       class="toggle-button stopped">CO2 Stopped</button>
+        <button id="btnTaskNextion"   class="toggle-button stopped">Nextion Stopped</button>
+        <button id="btnTaskBMP280"    class="toggle-button stopped">BMP280 Stopped</button>
+        <button id="btnTaskInfluxDB"  class="toggle-button stopped">InfluxDB Stopped</button>
+        <button id="btnTaskForecaster"class="toggle-button stopped">Forecast Stopped</button>
+        <button id="btnTaskNTP"       class="toggle-button stopped">NTP Stopped</button>
+        <button id="btnTaskTVOC"      class="toggle-button stopped">TVOC Stopped</button>
     </div>
+
+    <!-- Кнопки действий -->
     <div class="buttons-container">
         <form action="/" method="POST">
-            <button type="submit" id="Button" class="widget">Home</button>
+            <button type="submit" class="action-button">Home</button>
         </form>
-        <form id="restartForm" action="/restart" method="POST">
-            <button type="submit" id="RestartButton" class="widget">Restart ESP32</button>
+        <form id="form-restart" action="/restart" method="POST">
+            <button type="submit" id="RestartButton" class="action-button">Restart ESP32</button>
         </form>
-        <form id="restartForm" action="/updateform" method="POST">
-            <button type="submit" id="Button" class="widget">Update FW</button>
+        <form id="form-update" action="/updateform" method="POST">
+            <button type="submit" class="action-button">Update FW</button>
         </form>
-        <form id="restartForm" action="/nrfreset" method="POST">
-            <button type="button" id="Button" class="widget" onclick="resetNRF()">Reset nRF905</button>
+        <form id="form-nrfreset">
+            <button type="button" class="action-button" onclick="resetNRF()">Reset nRF905</button>
         </form>
     </div>
-	<h2>Настройка nRF905</h2>
-  <form id="setform">
-    <label for="channel">Номер канала:</label>
-    <input type="number" id="channel" name="channel" value="175" min="0" max="255" required>
 
-    <label>Диапазон:</label>
-    <input type="radio" id="lowband" name="band" value="false" checked>
-    <label for="lowband" style="display:inline;">433 МГц</label>
-    <input type="radio" id="hiband" name="band" value="true">
-    <label for="hiband" style="display:inline;">868 Мгц</label>
+    <!-- Настройка nRF905 -->
+    <h2>Настройка nRF905</h2>
+    <form id="setform">
+        <label for="channel">Номер канала:</label>
+        <input type="number" id="channel" name="channel" value="175" min="0" max="255" required>
 
-    <label for="power">Мощность передатчика:</label>
-    <select id="power" name="power" required>
-      <!-- Значения соответствуют перечислению TransmitPower -->
-      <option value="TransmitPowerm10dBm">-10 dBm</option>
-      <option value="TransmitPowerm2dBm">-2 dBm</option>
-      <option value="TransmitPower6dBm">6 dBm</option>
-      <option value="TransmitPower10dBm" selected>10 dBm</option>
-    </select>
+        <label>Диапазон:</label>
+        <input type="radio" id="lowband" name="band" value="false" checked>
+        <label for="lowband" style="display:inline;">433 МГц</label>
+        <input type="radio" id="hiband" name="band" value="true">
+        <label for="hiband" style="display:inline;">868 МГц</label>
 
-    <button type="button" id="Setbutton" onclick="sendNRFConfig()">Сохранить настройки</button>
-  </form>
+        <label for="power">Мощность передатчика:</label>
+        <select id="power" name="power" required>
+            <option value="TransmitPowerm10dBm">−10 dBm</option>
+            <option value="TransmitPowerm2dBm"> −2 dBm</option>
+            <option value="TransmitPower6dBm">  +6 dBm</option>
+            <option value="TransmitPower10dBm" selected>+10 dBm</option>
+        </select>
 
-  <p id="result"></p>
-        <script src="/restart.js"></script>
+        <button type="button" id="Setbutton" onclick="sendNRFConfig()">Сохранить настройки</button>
+    </form>
+
+    <p id="result"></p>
+
+    <script src="/restart.js"></script>
 </body>
 </html>

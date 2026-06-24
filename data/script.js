@@ -1,165 +1,152 @@
-window.addEventListener('DOMContentLoaded', () => {
-    const iframe = document.getElementById('temperatureChart');
-    
-    // Определяем текущий хост
-    const currentHost = window.location.hostname;
-    let iframeSrc;
+// ─────────────────────────────────────────────────────────────
+//  script.js — главная страница:
+//  цветовые шкалы, индикаторные полосы, иконки прогноза/тренда,
+//  периодическое обновление данных с /graph-data.
+// ─────────────────────────────────────────────────────────────
 
-    if (currentHost.startsWith("192.168.1.")) {
-      // Локальная сеть
-      iframeSrc = "http://192.168.1.214:3000/public-dashboards/8540a49c692f4ba7841a2228b102d203";
-    } else {
-      // Внешний доступ (домены или публичный IP)
-      iframeSrc = "http://62.33.134.164:3000/public-dashboards/8540a49c692f4ba7841a2228b102d203";
-    }
+// ── URL iframe Grafana (подставьте актуальный адрес сервера) ──
 
-    iframe.src = iframeSrc;
-  });
+window.addEventListener("DOMContentLoaded", () => {
+    const iframe = document.getElementById("temperatureChart");
+    const host   = window.location.hostname;
 
+    // Для локальной сети и внешнего доступа используются разные адреса
+    iframe.src = host.startsWith("192.168.1.")
+        ? "http://192.168.1.XXX:3000/public-dashboards/8540a49c692f4ba7841a2228b102d203"
+        : "http://62.33.134.164:3000/public-dashboards/8540a49c692f4ba7841a2228b102d203";
+});
+
+// ── Цветовые шкалы ───────────────────────────────────────────
+//
+//  Используется локальная реализация палитр ColorBrewer (d3-local-maps.js)
+//  вместо подключения полной библиотеки D3.
+
+// Температура и давление: синий (холодно/низкое) → красный (тепло/высокое)
 function getColor(value, min, max) {
     const t = (value - min) / (max - min);
-    // d3.interpolateRdYlBu выдаёт цвет при t=0 красный, t=1 синий,
-    // поэтому, чтобы получить синий при низком значении и красный при высоком, переворачиваем t:
     return localInterpolateRdYlBu(1 - t);
 }
 
+// Качество воздуха: зелёный (хорошее) → красный (плохое)
 function getColorAirQuality(value, min, max) {
     const t = (value - min) / (max - min);
-    // d3.interpolateRdYlBu выдаёт цвет при t=0 красный, t=1 синий,
-    // поэтому, чтобы получить синий при низком значении и красный при высоком, переворачиваем t:
     return localInterpolateRdYlGn(1 - t);
 }
 
+// Влажность: диапазон сужен до комфортной зоны [0.3 .. 0.6]
 function getColorHumidity(value, min, max) {
     let t = (value - min) / (max - min);
-    t = 0.3 + t * 0.3; // Масштабируем t в диапазон [0.5, 1]
+    t = 0.3 + t * 0.3;
     return localInterpolateRdYlBu(t);
 }
 
+// ── Обновление индикаторной полосы ───────────────────────────
+
 function updateIndicator(value, min, max, elementId) {
-    const progressBar = document.getElementById(elementId);
-    if (!progressBar) {
-      console.warn(`Элемент с ID ${elementId} не найден.`);
-      return;
-    }
-    const percentage = ((value - min) / (max - min)) * 100;
-    progressBar.style.width = `${percentage}%`;
-    progressBar.style.backgroundColor = getColor(value, min, max);
+    const bar = document.getElementById(elementId);
+    if (!bar) { console.warn("Элемент не найден:", elementId); return; }
+    bar.style.width           = ((value - min) / (max - min) * 100) + "%";
+    bar.style.backgroundColor = getColor(value, min, max);
 }
 
 function updateIndicatorAirQuality(value, min, max, elementId) {
-    const progressBar = document.getElementById(elementId);
-    if (!progressBar) {
-      console.warn(`Элемент с ID ${elementId} не найден.`);
-      return;
-    }
-    const percentage = ((value - min) / (max - min)) * 100;
-    progressBar.style.width = `${percentage}%`;
-    progressBar.style.backgroundColor = getColorAirQuality(value, min, max);
+    const bar = document.getElementById(elementId);
+    if (!bar) { console.warn("Элемент не найден:", elementId); return; }
+    bar.style.width           = ((value - min) / (max - min) * 100) + "%";
+    bar.style.backgroundColor = getColorAirQuality(value, min, max);
 }
 
 function updateIndicatorHumidity(value, min, max, elementId) {
-    const progressBar = document.getElementById(elementId);
-    if (!progressBar) {
-      console.warn(`Элемент с ID ${elementId} не найден.`);
-      return;
-    }
-    const percentage = ((value - min) / (max - min)) * 100;
-    progressBar.style.width = `${percentage}%`;
-    progressBar.style.backgroundColor = getColorHumidity(value, min, max);
+    const bar = document.getElementById(elementId);
+    if (!bar) { console.warn("Элемент не найден:", elementId); return; }
+    bar.style.width           = ((value - min) / (max - min) * 100) + "%";
+    bar.style.backgroundColor = getColorHumidity(value, min, max);
 }
+
+// ── Иконка прогноза погоды (алгоритм Замбретти, 0–10) ────────
 
 function updateWeatherIcon(forecast) {
-    const weatherIcon = document.getElementById('weatherIcon');
-    if (!weatherIcon) {
-        console.warn("Элемент weatherIcon не найден.");
-        return;
-    }
-
-    if (forecast >= 0 && forecast <= 2) {
-        weatherIcon.src = '/sunny.png';
-    } else if (forecast <= 4.5) {
-        weatherIcon.src = '/partly_cloudy.png';
-    } else if (forecast <= 7) {
-        weatherIcon.src = '/cloudy.png';
-    } else {
-        weatherIcon.src = '/stormy.png';
-    }
+    const icon = document.getElementById("weatherIcon");
+    if (!icon) return;
+    if      (forecast <= 2)   icon.src = "/sunny.png";
+    else if (forecast <= 4.5) icon.src = "/partly_cloudy.png";
+    else if (forecast <= 7)   icon.src = "/cloudy.png";
+    else                      icon.src = "/stormy.png";
 }
+
+// ── Иконка барического тренда (гПа/3ч) ───────────────────────
 
 function updateTrendIcon(trend) {
-    const trendIcon = document.getElementById('trendIcon');
-    if (!trendIcon) {
-        console.warn("Элемент trendIcon не найден.");
-        return;
-    }
-
-    if (trend < -2.8) {
-        trendIcon.src = '/3arrowdown.png';
-    } else if (trend >= -2.8 && trend < -1.8) {
-        trendIcon.src = '/2arrowdown.png';
-    } else if (trend >= -1.8 && trend < -0.7) {
-        trendIcon.src = '/arrowdown.png';
-    } else if (trend >= -0.7 && trend <= 0.7) {
-        trendIcon.src = '/neutral.png';
-    } else if (trend > 0.7 && trend <= 1.8) {
-        trendIcon.src = '/arrowup.png';
-    } else if (trend > 1.8 && trend <= 2.8) {
-        trendIcon.src = '/2arrowup.png';
-    } else {
-        trendIcon.src = '/3arrowup.png';
-    }
+    const icon = document.getElementById("trendIcon");
+    if (!icon) return;
+    if      (trend < -2.8)              icon.src = "/3arrowdown.png";
+    else if (trend >= -2.8 && trend < -1.8) icon.src = "/2arrowdown.png";
+    else if (trend >= -1.8 && trend < -0.7) icon.src = "/arrowdown.png";
+    else if (trend >= -0.7 && trend <= 0.7) icon.src = "/neutral.png";
+    else if (trend >  0.7  && trend <= 1.8) icon.src = "/arrowup.png";
+    else if (trend >  1.8  && trend <= 2.8) icon.src = "/2arrowup.png";
+    else                                icon.src = "/3arrowup.png";
 }
+
+// ── Обновление всех виджетов данными с сервера ───────────────
 
 function updateTable(data) {
-  
+    // Уличные данные
     document.getElementById("temperature").textContent = data.temperature.toFixed(2) + " °C";
-    document.getElementById("humidity").textContent = data.humidity.toFixed(2) + " %";
-    document.getElementById("dewPoint").textContent = data.dewPoint.toFixed(2) + " °C";
-    document.getElementById("pressure").textContent = data.pressure.toFixed(2) + " hPa";
+    document.getElementById("humidity")   .textContent = data.humidity   .toFixed(2) + " %";
+    document.getElementById("dewPoint")   .textContent = data.dewPoint   .toFixed(2) + " °C";
+
+    // Домашние данные
     document.getElementById("homeTemp").textContent = data.homeTemp.toFixed(2) + " °C";
-    document.getElementById("homeHum").textContent = data.homeHum.toFixed(2) + " %";
-    document.getElementById("homeDP").textContent = data.homeDP.toFixed(2) + " °C";
-    document.getElementById("CO2").textContent = data.CO2.toFixed(2) + " ppm";
-    document.getElementById("TVOC").textContent = data.TVOC.toFixed(2) + " ppb";
-    document.getElementById("GEO").textContent = data.GEO.toFixed(2) + " uT";
+    document.getElementById("homeHum") .textContent = data.homeHum .toFixed(2) + " %";
+    document.getElementById("homeDP")  .textContent = data.homeDP  .toFixed(2) + " °C";
+
+    // Давление
+    document.getElementById("pressure").textContent = data.pressure.toFixed(2) + " hPa";
+
+    // Качество воздуха
+    document.getElementById("CO2") .textContent = data.CO2 .toFixed(0) + " ppm";
+    document.getElementById("TVOC").textContent = data.TVOC.toFixed(0) + " ppb";
+
+    // Свет и УФ
     document.getElementById("LUX").textContent = data.LUX.toFixed(1) + " lux";
-    document.getElementById("UV").textContent = data.UV.toFixed(2);
+    document.getElementById("UV") .textContent = data.UV .toFixed(2);
 
-    // Обновляем индикаторы
-    updateIndicator(data.temperature, -35, 35, 'temperatureBar'); // Температура на улице
-    updateIndicator(data.homeTemp, 10, 35, 'homeTempBar'); // Температура дома
-    updateIndicatorHumidity(data.humidity, 0, 100, 'humidityBar'); // Влажность на улице
-    updateIndicatorHumidity(data.homeHum, 0, 100, 'homeHumBar'); // Влажность дома
-    updateIndicator(data.dewPoint, -35, 30, 'dewPointBar'); // Точка росы на улице
-    updateIndicator(data.homeDP, -20, 30, 'homeDPBar'); // Точка росы дома
-    updateIndicator(data.pressure, 956, 1056, 'pressureBar'); // Давление
-    updateIndicatorAirQuality(data.CO2, 400, 2000, 'CO2Bar');
-    updateIndicatorAirQuality(data.TVOC, 0, 2000, 'TVOCBar');
+    // Индикаторные полосы
+    updateIndicator(        data.temperature, -35,  35, "temperatureBar");
+    updateIndicator(        data.homeTemp,     10,  35, "homeTempBar");
+    updateIndicatorHumidity(data.humidity,      0, 100, "humidityBar");
+    updateIndicatorHumidity(data.homeHum,       0, 100, "homeHumBar");
+    updateIndicator(        data.dewPoint,    -35,  30, "dewPointBar");
+    updateIndicator(        data.homeDP,      -20,  30, "homeDPBar");
+    updateIndicator(        data.pressure,    956, 1056, "pressureBar");
+    updateIndicatorAirQuality(data.CO2,  400, 2000, "CO2Bar");
+    updateIndicatorAirQuality(data.TVOC,   0, 2000, "TVOCBar");
 
-    // Обновляем иконку погоды
+    // Иконки прогноза и тренда
     updateWeatherIcon(data.forecast);
     updateTrendIcon(data.trend);
-  }
-
-  function fetchDataAndUpdate() {
-    fetch('/graph-data', { cache: "no-store" })
-        .then(response => response.json())
-        .then(data => updateTable(data)) // Обновляем таблицу без проверок
-        .catch(error => console.error("Ошибка загрузки данных:", error));
 }
 
-document.addEventListener('DOMContentLoaded', () => {
-    const toggleButton = document.getElementById('toggleGraphButton');
-    const chartContainer = document.getElementById('chartContainer');
+// ── Опрос /graph-data каждые 5 секунд ────────────────────────
 
-    toggleButton.addEventListener('click', () => {
-        if (chartContainer.style.display === 'none') {
-            chartContainer.style.display = 'block';
-        } else {
-            chartContainer.style.display = 'none';
-        }
+function fetchDataAndUpdate() {
+    fetch("/graph-data", { cache: "no-store" })
+        .then(r => r.json())
+        .then(data => updateTable(data))
+        .catch(err => console.error("Ошибка загрузки данных:", err));
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+    // Кнопка показа/скрытия графика Grafana
+    const toggleBtn      = document.getElementById("toggleGraphButton");
+    const chartContainer = document.getElementById("chartContainer");
+    toggleBtn.addEventListener("click", () => {
+        chartContainer.style.display =
+            (chartContainer.style.display === "none") ? "block" : "none";
     });
-    fetchDataAndUpdate(); // Первоначальная загрузка данных для таблицы
-    setInterval(fetchDataAndUpdate, 5000); // Периодическое обновление данных для таблицы
+
+    // Первоначальная загрузка и периодическое обновление
+    fetchDataAndUpdate();
+    setInterval(fetchDataAndUpdate, 5000);
 });

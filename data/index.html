@@ -1,7 +1,6 @@
-﻿<!DOCTYPE html>
-<html>
-<meta charset='UTF-8'>
-
+<!DOCTYPE html>
+<html lang="ru">
+<meta charset="UTF-8">
 <head>
     <title>ESP32 Dashboard</title>
     <style>
@@ -16,6 +15,7 @@
             padding: 20px;
         }
 
+        /* ── Основная сетка ─────────────────────────────────── */
         .container {
             display: grid;
             grid-template-columns: repeat(2, 1fr);
@@ -30,6 +30,7 @@
             margin-bottom: 10px;
         }
 
+        /* ── Виджет (маленький, 2 колонки) ─────────────────── */
         .widget {
             width: 220px;
             height: 124px;
@@ -43,38 +44,31 @@
             transition: background-color 0.3s ease;
         }
 
-        .widget:hover {
-            background-color: #575eac;
-            /* Цвет при нажатии */
-        }
+        .widget:hover { background-color: #575eac; }
 
-        #temperatureIcon {
+        /* ── Иконки в виджетах (классы вместо дублирующихся id) */
+        .temperature-icon {
             position: absolute;
-            left: 19px;
-            top: 38%;
+            left: 19px; top: 38%;
             transform: translateY(-50%);
-            width: 13px;
-            height: 30px;
+            width: 13px; height: 30px;
         }
 
-        #humidityIcon {
+        .humidity-icon {
             position: absolute;
-            left: 19px;
-            top: 38%;
+            left: 19px; top: 38%;
             transform: translateY(-50%);
-            width: 21px;
-            height: 30px;
+            width: 21px; height: 30px;
         }
 
-        #dewPointIcon {
+        .dew-point-icon {
             position: absolute;
-            left: 19px;
-            top: 38%;
+            left: 19px; top: 38%;
             transform: translateY(-50%);
-            width: 30px;
-            height: 30px;
+            width: 30px; height: 30px;
         }
 
+        /* ── Виджет давления и прогноза (широкий, 2 колонки) ── */
         .pressure-widget {
             width: 500px;
             height: 143px;
@@ -89,59 +83,37 @@
             transition: background-color 0.3s ease;
         }
 
-        .pressure-widget:hover {
-            background-color: #575eac;
-            /* Цвет при нажатии */
-        }
+        .pressure-widget:hover { background-color: #575eac; }
 
         #weatherIcon {
             position: absolute;
-            left: 20px;
-            top: 35%;
+            left: 20px; top: 35%;
             transform: translateY(-50%);
-            width: 80px;
-            height: 80px;
-        }
-
-        #CO2Icon {
-            position: absolute;
-            left: 20px;
-            top: 41%;
-            transform: translateY(-55%);
-            width: 70px;
-            height: 80px;
-        }
-
-        #GEOIcon {
-            position: absolute;
-            left: 20px;
-            top: 41%;
-            transform: translateY(-55%);
-            width: 121px;
-            height: 80px;
-        }
-
-        #TVOCIcon {
-            position: absolute;
-            left: 20px;
-            top: 41%;
-            transform: translateY(-55%);
-            width: 43px;
-            height: 79px;
+            width: 80px; height: 80px;
         }
 
         #trendIcon {
             position: absolute;
-            right: 20px;
-            top: 35%;
+            right: 20px; top: 35%;
             transform: translateY(-50%);
-            width: 80px;
-            height: 80px;
+            width: 80px; height: 80px;
         }
 
-        .widget h2 {
-            margin-top: 0;
+        #CO2Icon {
+            position: absolute;
+            left: 20px; top: 41%;
+            transform: translateY(-55%);
+            width: 70px; height: 80px;
         }
+
+        #TVOCIcon {
+            position: absolute;
+            left: 20px; top: 41%;
+            transform: translateY(-55%);
+            width: 43px; height: 79px;
+        }
+
+        .widget h2 { margin-top: 0; }
 
         .value {
             font-size: 24px;
@@ -154,20 +126,21 @@
             margin-bottom: 10px;
         }
 
+        /* ── График Grafana ─────────────────────────────────── */
         #toggleGraphButton {
             width: 540px;
             height: 35px;
+            border-radius: 10px;
             grid-column: span 2;
             background-color: #242749;
             cursor: pointer;
             border: none;
             padding: 10px 20px;
             transition: background-color 0.3s ease;
+            color: #c7c7c7;
         }
 
-        #toggleGraphButton:hover {
-            background-color: #575eac;
-        }
+        #toggleGraphButton:hover { background-color: #575eac; }
 
         #chartContainer {
             grid-column: span 2;
@@ -176,13 +149,12 @@
 
         iframe {
             background-color: #242749;
-            color: #c7c7c7;
             border-radius: 10px;
             padding: 10px;
             box-shadow: 0 2px 3px 1px rgba(0, 0, 0, 0.185);
         }
 
-        /* Стили для индикатора */
+        /* ── Индикаторная полоса ────────────────────────────── */
         .progress-bar {
             width: 100%;
             height: 20px;
@@ -197,76 +169,54 @@
             height: 100%;
             border-radius: 5px;
             transition: width 0.3s ease, background-color 0.3s ease;
-            /* Плавное изменение ширины и цвета */
         }
 
-        #Button {
+        /* ── Кнопки навигации ───────────────────────────────── */
+        .nav-button {
             width: 90px;
             height: 50px;
+            border-radius: 10px;
             border: none;
-            /* Убираем границу */
             outline: none;
-            /* Убираем обводку при фокусе */
             background-color: #242749;
-            /* Фоновый цвет, который подходит под стиль остальных виджетов */
+            color: #c7c7c7;
             padding: 15px;
-            /* Отступы для удобства клика */
             font-size: 12px;
-            /* Размер шрифта */
             text-align: center;
             cursor: pointer;
-            /* Курсор-рука при наведении */
             transition: background-color 0.3s ease;
-            /* Плавное изменение цвета при нажатии */
         }
 
-        /* Изменение цвета при нажатии (активном состоянии) */
-        #Button:hover {
-            background-color: #575eac;
-            /* Цвет при нажатии */
-        }
+        .nav-button:hover { background-color: #575eac; }
 
+        /* ── Виджет восхода/заката ──────────────────────────── */
         .sunset-widget {
             width: 500px;
-            /* Фиксированная ширина */
             height: auto;
-            /* Увеличенная высота */
             margin: 0 auto;
-            /* Тоже по центру внутри .container */
             grid-column: span 2;
-
             background-color: #242749;
             color: #c7c7c7;
             border-radius: 10px;
             padding: 20px;
             box-shadow: 0 2px 3px 1px rgba(0, 0, 0, 0.185);
             transition: background-color 0.3s ease;
-            /* Располагаем элементы по вертикали:
-   сверху - метки и дуга, снизу - текущее время */
             display: flex;
             flex-direction: column;
             justify-content: space-between;
             align-items: center;
         }
 
-        .sunset-widget:hover {
-            background-color: #575eac;
-            /* Цвет при нажатии */
-        }
+        .sunset-widget:hover { background-color: #575eac; }
 
-        /* Верхняя часть (метки и дуга) */
         .top-row {
             position: relative;
             width: 300px;
-            /* Фиксированная ширина, совпадает с дугой */
             height: 150px;
-            /* Высота под дугу */
             margin-bottom: 10px;
         }
 
-        /* Метки восхода и заката */
-        .sunrise-label,
-        .sunset-label {
+        .sunrise-label, .sunset-label {
             position: absolute;
             top: 50%;
             transform: translateY(-50%);
@@ -275,17 +225,9 @@
             text-align: center;
         }
 
-        .sunrise-label {
-            left: -90px;
-            top: 137px;
-        }
+        .sunrise-label { left: -90px; top: 137px; }
+        .sunset-label  { right: -90px; top: 137px; }
 
-        .sunset-label {
-            right: -90px;
-            top: 137px;
-        }
-
-        /* Внешний контейнер для дуги (по центру) */
         #sunArcWrapper {
             position: absolute;
             left: 50%;
@@ -294,53 +236,42 @@
             width: 300px;
             height: 150px;
             overflow: visible;
-            /* солнце не обрезается */
         }
 
-        /* Сам полукруг */
         #sunArc {
             position: absolute;
-            top: 0;
-            left: 0;
+            top: 0; left: 0;
             width: 300px;
             height: 150px;
             border-top-left-radius: 150px;
             border-top-right-radius: 150px;
             border: 2px solid #fff;
-            /* линия дуги */
             background-color: #428bc9;
             box-sizing: border-box;
             overflow: hidden;
-            /* «горизонт» не выходит за границы */
         }
 
         .horizon {
             position: absolute;
-            bottom: 0;
-            left: 0;
-            width: 100%;
-            height: 15%;
+            bottom: 0; left: 0;
+            width: 100%; height: 15%;
             background: #554a22;
         }
 
-        /* Солнце */
         #sun {
             position: absolute;
-            width: 30px;
-            height: 30px;
+            width: 30px; height: 30px;
             border-radius: 50%;
             background: gold;
             transform: translate(-50%, -50%);
         }
 
-        /* Нижняя часть (текущее время/дата) */
         .bottom-row {
             text-align: center;
             font-size: 16px;
         }
 
-        .lux-data,
-        .uv-data {
+        .lux-data, .uv-data {
             position: absolute;
             top: 50%;
             transform: translateY(-50%);
@@ -349,25 +280,22 @@
             text-align: center;
         }
 
-        .lux-data {
-            left: -90px;
-            top: 20px;
-        }
-
-        .uv-data {
-            right: -90px;
-            top: 20px;
-        }
+        .lux-data { left: -90px; top: 20px; }
+        .uv-data  { right: -90px; top: 20px; }
     </style>
 </head>
 
 <body>
     <h1>Погодная станция</h1>
     <div class="container">
+
+        <!-- Заголовки колонок -->
         <div class="widget-title">Улица</div>
         <div class="widget-title">Дом</div>
+
+        <!-- Температура -->
         <div class="widget">
-            <img id="temperatureIcon" src="/temperature.png">
+            <img class="temperature-icon" src="/temperature.png" alt="">
             <h2>Температура</h2>
             <div class="value" id="temperature"></div>
             <div class="label">Текущая температура</div>
@@ -376,7 +304,7 @@
             </div>
         </div>
         <div class="widget">
-            <img id="temperatureIcon" src="/temperature.png">
+            <img class="temperature-icon" src="/temperature.png" alt="">
             <h2>Температура</h2>
             <div class="value" id="homeTemp"></div>
             <div class="label">Текущая температура</div>
@@ -384,8 +312,10 @@
                 <div class="progress-bar-fill" id="homeTempBar"></div>
             </div>
         </div>
+
+        <!-- Влажность -->
         <div class="widget">
-            <img id="humidityIcon" src="/humidity.png">
+            <img class="humidity-icon" src="/humidity.png" alt="">
             <h2>Влажность</h2>
             <div class="value" id="humidity"></div>
             <div class="label">Относительная влажность</div>
@@ -394,7 +324,7 @@
             </div>
         </div>
         <div class="widget">
-            <img id="humidityIcon" src="/humidity.png">
+            <img class="humidity-icon" src="/humidity.png" alt="">
             <h2>Влажность</h2>
             <div class="value" id="homeHum"></div>
             <div class="label">Относительная влажность</div>
@@ -402,8 +332,10 @@
                 <div class="progress-bar-fill" id="homeHumBar"></div>
             </div>
         </div>
+
+        <!-- Точка росы -->
         <div class="widget">
-            <img id="dewPointIcon" src="/dew_point.png">
+            <img class="dew-point-icon" src="/dew_point.png" alt="">
             <h2>Точка росы</h2>
             <div class="value" id="dewPoint"></div>
             <div class="label">Температура точки росы</div>
@@ -412,7 +344,7 @@
             </div>
         </div>
         <div class="widget">
-            <img id="dewPointIcon" src="/dew_point.png">
+            <img class="dew-point-icon" src="/dew_point.png" alt="">
             <h2>Точка росы</h2>
             <div class="value" id="homeDP"></div>
             <div class="label">Температура точки росы</div>
@@ -420,9 +352,11 @@
                 <div class="progress-bar-fill" id="homeDPBar"></div>
             </div>
         </div>
+
+        <!-- Давление + прогноз -->
         <div class="pressure-widget">
-            <img id="weatherIcon" src="/transparent.png" alt="Weather Icon">
-            <img id="trendIcon" src="/transparent.png" alt="Trend Icon">
+            <img id="weatherIcon" src="/transparent.png" alt="Прогноз">
+            <img id="trendIcon"   src="/transparent.png" alt="Тренд">
             <h2>Давление</h2>
             <div class="value" id="pressure"></div>
             <div class="label">Атмосферное давление</div>
@@ -430,17 +364,19 @@
                 <div class="progress-bar-fill" id="pressureBar"></div>
             </div>
         </div>
-        <div class="sunset-widget">            
+
+        <!-- Восход/Закат + освещённость + УФ -->
+        <div class="sunset-widget">
             <div class="top-row">
                 <div class="lux-data">
-                    <div>Освещенность</div>
-                    <div id="LUX"></div>                    
+                    <div>Освещённость</div>
+                    <div id="LUX"></div>
                 </div>
                 <div class="uv-data">
                     <div>УФ-индекс</div>
-                    <div id="UV"></div>                    
+                    <div id="UV"></div>
                 </div>
-                <div class="sunrise-label" id="sunriseLabel"></div>        
+                <div class="sunrise-label" id="sunriseLabel"></div>
                 <div id="sunArcWrapper">
                     <div id="sunArc">
                         <div class="horizon"></div>
@@ -453,51 +389,47 @@
                 <div id="currentDateTime"></div>
             </div>
         </div>
+
+        <!-- CO2 -->
         <div class="pressure-widget">
-            <h2>Геомагнитное поле</h2>
-            <img id="GEOIcon" src="/geomagnetic.png" alt="GEO Icon">
-            <div class="value" id="GEO"></div>
-            <div class="label">Модуль поля</div>
-            <!--div class="progress-bar">
-                <div class="progress-bar-fill" id="CO2Bar"></div>
-            </div-->
-        </div>
-        <div class="pressure-widget">
+            <img id="CO2Icon" src="/CO2_green.png" alt="CO2">
             <h2>CO2</h2>
-            <img id="CO2Icon" src="/CO2_green.png" alt="CO2 Icon">
             <div class="value" id="CO2"></div>
             <div class="label">Концентрация CO2</div>
             <div class="progress-bar">
                 <div class="progress-bar-fill" id="CO2Bar"></div>
             </div>
         </div>
+
+        <!-- TVOC -->
         <div class="pressure-widget">
+            <img id="TVOCIcon" src="/TVOC.png" alt="TVOC">
             <h2>TVOC</h2>
-            <img id="TVOCIcon" src="/TVOC.png" alt="TVOC Icon">
             <div class="value" id="TVOC"></div>
             <div class="label">Концентрация TVOC</div>
             <div class="progress-bar">
                 <div class="progress-bar-fill" id="TVOCBar"></div>
             </div>
         </div>
-        <button id="toggleGraphButton" class="widget">Показать/скрыть график</button>
+
+        <!-- График Grafana -->
+        <button id="toggleGraphButton">Показать / скрыть график</button>
         <div id="chartContainer" style="display: none;">
-            <div class="grid-container">
-                <div class="grid-item">
-                    <iframe id="temperatureChart" alt="Graph" width="520" height="900" frameborder="0"></iframe>
-                </div>
-            </div>
+            <iframe id="temperatureChart" width="520" height="900" frameborder="0"></iframe>
         </div>
+
+        <!-- Навигация -->
         <form action="/admin" method="POST">
-            <button type="submit" id="Button" class="widget">Настройки</button>
+            <button type="submit" class="nav-button">Настройки</button>
         </form>
         <form action="/about" method="POST" style="justify-self: end;">
-            <button type="submit" id="Button" class="widget">About</button>
+            <button type="submit" class="nav-button">About</button>
         </form>
+
     </div>
+
     <script src="/d3-local-maps.js"></script>
     <script src="/script.js"></script>
     <script src="/sunset.js"></script>
 </body>
-
 </html>
