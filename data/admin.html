@@ -88,29 +88,48 @@
         .running { background-color: green; }
         .stopped { background-color: red; }
 
-        /* ── Кнопки навигации и действий ────────────────────── */
-        .buttons-container {
+        /* ── Блок кнопок управления ─────────────────────────── */
+        .buttons-block {
             display: flex;
-            gap: 20px;
+            flex-wrap: wrap;
+            gap: 12px;
             justify-content: center;
-            margin-top: 40px;
+            max-width: 800px;
+            margin-top: 20px;
+            padding: 20px;
+            background-color: #242749;
+            border-radius: 10px;
+            box-shadow: 0 2px 3px 1px rgba(0, 0, 0, 0.185);
+        }
+
+        .block-label {
+            width: 100%;
+            text-align: center;
+            font-size: 13px;
+            color: #979797e5;
+            margin-bottom: 4px;
+            border-bottom: 1px solid #414f8a;
+            padding-bottom: 6px;
         }
 
         .action-button {
             border: none;
             outline: none;
-            background-color: #242749;
+            background-color: #414f8a;
             color: #c7c7c7;
-            padding: 10px;
+            padding: 0;
             font-size: 12px;
             height: 50px;
-            width: 90px;
+            width: 110px;
             cursor: pointer;
             border-radius: 6px;
             transition: background-color 0.3s ease;
         }
 
         .action-button:hover { background-color: #575eac; }
+
+        /* Деструктивные действия — чуть другой акцент при наведении */
+        .action-button.danger:hover { background-color: #7a3030; }
 
         /* ── Кнопка сохранения настроек nRF905 ─────────────── */
         #Setbutton {
@@ -151,23 +170,27 @@
     <!-- Таск-менеджер -->
     <h2>Управление задачами</h2>
     <div class="switches-container">
-        <button id="btnTaskNRF905"    class="toggle-button stopped">nRF905 Stopped</button>
-        <button id="btnTaskCO2"       class="toggle-button stopped">CO2 Stopped</button>
-        <button id="btnTaskNextion"   class="toggle-button stopped">Nextion Stopped</button>
-        <button id="btnTaskBMP280"    class="toggle-button stopped">BMP280 Stopped</button>
-        <button id="btnTaskInfluxDB"  class="toggle-button stopped">InfluxDB Stopped</button>
-        <button id="btnTaskForecaster"class="toggle-button stopped">Forecast Stopped</button>
-        <button id="btnTaskNTP"       class="toggle-button stopped">NTP Stopped</button>
-        <button id="btnTaskTVOC"      class="toggle-button stopped">TVOC Stopped</button>
+        <button id="btnTaskNRF905"     class="toggle-button stopped">nRF905 Stopped</button>
+        <button id="btnTaskCO2"        class="toggle-button stopped">CO2 Stopped</button>
+        <button id="btnTaskNextion"    class="toggle-button stopped">Nextion Stopped</button>
+        <button id="btnTaskBMP280"     class="toggle-button stopped">BMP280 Stopped</button>
+        <button id="btnTaskInfluxDB"   class="toggle-button stopped">InfluxDB Stopped</button>
+        <button id="btnTaskForecaster" class="toggle-button stopped">Forecast Stopped</button>
+        <button id="btnTaskNTP"        class="toggle-button stopped">NTP Stopped</button>
+        <button id="btnTaskTVOC"       class="toggle-button stopped">TVOC Stopped</button>
     </div>
 
-    <!-- Кнопки действий -->
-    <div class="buttons-container">
+    <!-- Единый блок управления: ESP32 + внешний блок STM32 -->
+    <h2>Управление</h2>
+    <div class="buttons-block">
+
+        <!-- ESP32 -->
+        <div class="block-label">ESP32</div>
         <form action="/" method="POST">
             <button type="submit" class="action-button">Home</button>
         </form>
         <form id="form-restart" action="/restart" method="POST">
-            <button type="submit" id="RestartButton" class="action-button">Restart ESP32</button>
+            <button type="submit" id="RestartButton" class="action-button danger">Restart ESP32</button>
         </form>
         <form id="form-update" action="/updateform" method="POST">
             <button type="submit" class="action-button">Update FW</button>
@@ -175,7 +198,28 @@
         <form id="form-nrfreset">
             <button type="button" class="action-button" onclick="resetNRF()">Reset nRF905</button>
         </form>
+
+        <!-- Внешний блок STM32 -->
+        <div class="block-label">Внешний блок (STM32)</div>
+        <button type="button" class="action-button"
+                onclick="sendExtCmd('HEATER')"
+                title="Принудительный запуск цикла просушки датчика SHT31">
+            Просушка
+        </button>
+        <button type="button" class="action-button"
+                onclick="sendExtCmd('NRF_REST')"
+                title="Сброс и переинициализация nRF905 на уличном блоке">
+            Reset nRF STM32
+        </button>
+        <button type="button" class="action-button danger"
+                onclick="sendExtCmd('REST')"
+                title="Полный перезапуск STM32 — данные прервутся на ~15 сек">
+            Restart STM32
+        </button>
+
     </div>
+
+    <p id="result"></p>
 
     <!-- Настройка nRF905 -->
     <h2>Настройка nRF905</h2>
@@ -199,8 +243,6 @@
 
         <button type="button" id="Setbutton" onclick="sendNRFConfig()">Сохранить настройки</button>
     </form>
-
-    <p id="result"></p>
 
     <script src="/restart.js"></script>
 </body>

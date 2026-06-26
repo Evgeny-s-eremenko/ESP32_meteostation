@@ -1,7 +1,7 @@
 // ─────────────────────────────────────────────────────────────
 //  restart.js — логика страницы администратора:
 //  WebSocket статус задач, таск-менеджер, системная информация,
-//  управление nRF905.
+//  управление nRF905, команды на внешний блок STM32.
 // ─────────────────────────────────────────────────────────────
 
 // ── Кнопка перезагрузки ESP32 ────────────────────────────────
@@ -89,6 +89,44 @@ document.getElementById("btnTaskForecaster").addEventListener("click", () => tog
 document.getElementById("btnTaskNTP")       .addEventListener("click", () => toggleTask("NTP"));
 document.getElementById("btnTaskTVOC")      .addEventListener("click", () => toggleTask("TVOC"));
 
+// ── Команды управления внешним блоком STM32 ──────────────────
+//
+//  HEATER   — принудительный запуск цикла просушки SHT31
+//  NRF_REST — сброс nRF905 на STM32
+//  REST     — полный перезапуск STM32 (данные прервутся ~15 сек)
+//
+//  Команда ставится в очередь на ESP32, отправляется через nRF905
+//  задачей taskNRF905Tx, не мешая приёму погодных пакетов.
+
+const EXT_CMD_LABELS = {
+    "HEATER":   "запустить цикл просушки",
+    "NRF_REST": "сбросить nRF905 на STM32",
+    "REST":     "перезапустить STM32"
+};
+
+function sendExtCmd(cmd) {
+    const label = EXT_CMD_LABELS[cmd] || cmd;
+    if (!confirm(`Подтвердите: ${label}?`)) return;
+
+    const resultEl = document.getElementById("result");
+    resultEl.innerText = `Отправка команды ${cmd}...`;
+
+    fetch("/sendCommand", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: "cmd=" + encodeURIComponent(cmd)
+    })
+    .then(r => r.text())
+    .then(text => {
+        resultEl.innerText = text;
+        // Сбрасываем сообщение через 5 секунд
+        setTimeout(() => { resultEl.innerText = ""; }, 5000);
+    })
+    .catch(err => {
+        resultEl.innerText = "Ошибка: " + err;
+    });
+}
+
 // ── Системная информация (uptime, RAM, RSSI) ─────────────────
 
 function loadSystemInfo() {
@@ -134,7 +172,7 @@ function sendNRFConfig() {
     .catch(err => { document.getElementById("result").innerText = "Ошибка: " + err; });
 }
 
-// ── Аппаратный сброс nRF905 ───────────────────────────────────
+// ── Аппаратный сброс nRF905 (ESP32) ──────────────────────────
 
 function resetNRF() {
     fetch("/nrfreset", { method: "POST" })

@@ -118,6 +118,17 @@ TaskHandle_t taskGetTimeHandle            = NULL;
 TaskHandle_t taskTVOCReadHandle           = NULL;
 
 // ─────────────────────────────────────────────────────────────
+//  Очередь команд для nRF905
+// ─────────────────────────────────────────────────────────────
+
+
+#define NRF905_CMD_LEN       16  // Максимальная длина текстовой команды + '\0'
+#define NRF905_CMD_QUEUE_LEN  5  // Ёмкость очереди (буфер команд)
+ 
+QueueHandle_t nrf905CmdQueue    = NULL;
+TaskHandle_t  taskNRF905TxHandle = NULL;
+
+// ─────────────────────────────────────────────────────────────
 //  Примитивы синхронизации
 // ─────────────────────────────────────────────────────────────
 
@@ -203,6 +214,7 @@ void  taskNRF905(void *pvParameters);
 void  taskBMP280(void *pvParameters);
 void  taskTVOCRead(void *pvParameters);
 void  taskSendDataToInfluxDB(void *pvParameters);
+void taskNRF905Tx(void *pvParameters);
 
 // ─────────────────────────────────────────────────────────────
 //  Вспомогательные вычисления
@@ -969,6 +981,40 @@ void switchTaskTVOCRead() {
   sendTaskStateUpdate();
 }
 
+// Ставит текстовую команду в очередь отправки на внешний блок STM32.
+// POST /sendCommand   тело: cmd=HEATER|NRF_REST|REST
+void handleSendCommand(AsyncWebServerRequest *request) {
+    if (!isAuthenticated(request)) return;
+ 
+    if (!request->hasParam("cmd", true)) {
+        request->send(400, "text/plain", "Параметр cmd не указан");
+        return;
+    }
+ 
+    String cmdStr = request->getParam("cmd", true)->value();
+    if (cmdStr.length() == 0 || cmdStr.length() >= NRF905_CMD_LEN) {
+        request->send(400, "text/plain", "Недопустимая длина команды");
+        return;
+    }
+ 
+    // Белый список — только известные команды STM32
+    if (cmdStr != "HEATER" && cmdStr != "NRF_REST" && cmdStr != "REST") {
+        request->send(400, "text/plain", "Неизвестная команда: " + cmdStr);
+        return;
+    }
+ 
+    char cmd[NRF905_CMD_LEN] = {};
+    strncpy(cmd, cmdStr.c_str(), NRF905_CMD_LEN - 1);
+ 
+    if (xQueueSend(nrf905CmdQueue, cmd, pdMS_TO_TICKS(500)) == pdTRUE) {
+        ESP_LOGI("NRF905_TX", "Команда поставлена в очередь: %s", cmd);
+        request->send(200, "text/plain", "OK: " + cmdStr);
+    } else {
+        ESP_LOGW("NRF905_TX", "Очередь переполнена, команда отброшена: %s", cmd);
+        request->send(503, "text/plain", "Очередь переполнена, попробуйте позже");
+    }
+}
+
 // Обработчик POST /toggleTask — переключает задачу по имени
 void handleTaskControl(AsyncWebServerRequest *request) {
   if (!request->hasParam("task", true)) {
@@ -1100,6 +1146,36 @@ void taskNRF905(void *pvParameters) {
 
     vTaskDelay(pdMS_TO_TICKS(1000));
   }
+}
+
+// Отправка команд на внешний блок через nRF905.
+//
+// Архитектура очереди:
+//   handleSendCommand() → xQueueSend → [nrf905CmdQueue] → taskNRF905Tx → nRF905 TX
+//
+// Синхронизация с приёмом:
+//   driverMutex — общий с taskNRF905 (RX). Пока идёт TX, RX-задача
+//   ждёт мьютекс и не трогает драйвер. После waitPacketSent() модуль
+//   автоматически возвращается в RX-режим.
+void taskNRF905Tx(void *pvParameters) {
+    char cmd[NRF905_CMD_LEN];
+ 
+    while (true) {
+        // Блокирующее ожидание — задача спит, пока очередь пуста
+        if (xQueueReceive(nrf905CmdQueue, cmd, portMAX_DELAY) != pdTRUE) continue;
+ 
+        ESP_LOGI("NRF905_TX", "Отправка команды: %s", cmd);
+ 
+        if (xSemaphoreTake(driverMutex, pdMS_TO_TICKS(5000)) == pdTRUE) {
+            uint8_t len = (uint8_t)strlen(cmd);
+            driver.send((uint8_t *)cmd, len);
+            driver.waitPacketSent();   // после этого модуль → RX
+            xSemaphoreGive(driverMutex);
+            ESP_LOGI("NRF905_TX", "Команда '%s' отправлена", cmd);
+        } else {
+            ESP_LOGE("NRF905_TX", "Таймаут driverMutex! Команда '%s' потеряна", cmd);
+        }
+    }
 }
 
 // Чтение BME280 (давление, домашняя T и H) раз в 5 секунд
@@ -1529,6 +1605,7 @@ void setup() {
   server.on("/update",    HTTP_POST, handleUpdateEnd, handleUpdateUpload);
   server.onFileUpload(handleUpdateUpload);
   server.on("/restart",       HTTP_POST, handleRestart);
+  server.on("/sendCommand", HTTP_POST, handleSendCommand);
   server.on("/graph-data",    HTTP_GET,  [](AsyncWebServerRequest *r){ handleGraphData(r); });
   server.on("/getTasksState", HTTP_GET,  [](AsyncWebServerRequest *r){ handleGetTasksState(r); });
   server.on("/toggleTask",    HTTP_ANY,  handleTaskControl);
@@ -1589,9 +1666,12 @@ void setup() {
   if (!i2cMutex)    ESP_LOGE("INIT", "Ошибка создания i2cMutex!");
   driverMutex = xSemaphoreCreateMutex();
   if (!driverMutex) ESP_LOGE("INIT", "Ошибка создания driverMutex!");
+  nrf905CmdQueue = xQueueCreate(NRF905_CMD_QUEUE_LEN, NRF905_CMD_LEN);
+  if (!nrf905CmdQueue) ESP_LOGE("INIT", "Ошибка создания очереди nRF905 TX!");
 
   // Задачи FreeRTOS
   xTaskCreate(taskNRF905,             "NRF905 Receiver",  4096, NULL, 5, &taskNRF905Handle);
+  xTaskCreate(taskNRF905Tx,           "NRF905 TX",        2048, NULL, 4, &taskNRF905TxHandle);
   xTaskCreate(taskBMP280,             "BMP280 Sensor",    2048, NULL, 4, &taskBMP280Handle);
   xTaskCreate(taskCO2Read,            "CO2 read task",    2048, NULL, 3, &taskCO2ReadHandle);
   xTaskCreate(taskTVOCRead,           "ENS160 read task", 4096, NULL, 2, &taskTVOCReadHandle);
