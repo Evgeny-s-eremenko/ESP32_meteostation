@@ -705,7 +705,7 @@ void resetNRF905() {
   if (xSemaphoreTake(driverMutex, portMAX_DELAY) == pdTRUE) {
     if (driver.init()) {
       driver.setChannel(175, false);
-      driver.setRF(RH_NRF905::TransmitPowerm10dBm);
+      driver.setRF(RH_NRF905::TransmitPower10dBm);
       ESP_LOGW("NRF905", "nRF905 переинициализирован (сброс #%u)", nRF905ResetCount);
     } else {
       ESP_LOGE("NRF905", "Ошибка переинициализации nRF905!");
@@ -1627,7 +1627,7 @@ void setup() {
     ESP_LOGE("INIT", "nRF905 не инициализирован!");
   } else {
     driver.setChannel(175, false);    // 439.9 МГц
-    driver.setRF(RH_NRF905::TransmitPowerm10dBm);
+    driver.setRF(RH_NRF905::TransmitPower10dBm);
     ESP_LOGI("INIT", "nRF905 готов");
   }
 

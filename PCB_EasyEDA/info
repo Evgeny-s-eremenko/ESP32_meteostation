@@ -1,0 +1,222 @@
+{
+  "uuid": "efea9fcb440761a73600267e330e279b",
+  "path": "Offline/Meteo",
+  "name": "Meteo",
+  "content": "",
+  "created_at": "2025-02-21 21:12:08",
+  "updated_at": "2025-03-01 18:09:40",
+  "stick": "",
+  "documents": [
+    {
+      "uuid": "6ff05af749565df5a337d1b851ac7155",
+      "title": "Meteo",
+      "description": "",
+      "docType": "1",
+      "master": "",
+      "thumb": "/images/thumb-default.png",
+      "components": {
+        "5a9ec2085ad6436d86701332d4451b76": 2,
+        "5181c02118d34f8b87505d73950466a3": 6,
+        "2ec0dbb589484bbea946d78f76adca95": 1,
+        "5136e5ddb7df40168bfab8f60b3fbfa7": 1,
+        "6d35e68fc5d6d668af98155e678c75a5": 2,
+        "34c5c0a3194c4ca8accc16ddbeb47033": 2
+      },
+      "BOM": [
+        [
+          "Value",
+          "Quantity",
+          "Package",
+          "Components",
+          "CustomPara"
+        ],
+        [
+          "XH2.54-4P_C9900010451",
+          6,
+          "CONN-TH_XH2.54-4P-1",
+          "BME280,DISPLAY,ENS160,MH-Z1911A,RSV,RTC",
+          {
+            "Manufacturer Part": "XH2.54-4P",
+            "Manufacturer": "null",
+            "Supplier": "LCSC",
+            "Supplier Part": "C9900010451"
+          }
+        ],
+        [
+          "10uF",
+          2,
+          "CAP-TH_BD5.0-P2.00-D0.8-FD",
+          "C1,C2",
+          {
+            "Manufacturer Part": "GR106M025D11RR0VH4FP0",
+            "Manufacturer": "CX(承兴)",
+            "Supplier": "LCSC",
+            "Supplier Part": "C19576"
+          }
+        ],
+        [
+          "WAFER-XH2.54-2PZZ",
+          1,
+          "CONN-TH_XH2.54-2P_1",
+          "DC",
+          {
+            "Manufacturer Part": "WAFER-XH2.54-2PZZ",
+            "Manufacturer": "XUNPU(讯普)",
+            "Supplier": "LCSC",
+            "Supplier Part": "C5359631"
+          }
+        ],
+        [
+          "HDR-F-2.54_1x15",
+          2,
+          "HDR-F-2.54_1X15",
+          "H1,H2",
+          {
+            "Manufacturer Part": "",
+            "Manufacturer": "",
+            "Supplier": "LCSC",
+            "Supplier Part": "C124408"
+          }
+        ],
+        [
+          "HDR-F-2.54_2x7",
+          1,
+          "HDR-F-2.54_2X7",
+          "NRF905",
+          {
+            "Manufacturer Part": "",
+            "Manufacturer": "",
+            "Supplier": "LCSC",
+            "Supplier Part": "C38844"
+          }
+        ],
+        [
+          "4.7kΩ",
+          2,
+          "RES-TH_BD2.3-L6.5-P10.50-D0.5",
+          "R1,R2",
+          {
+            "Manufacturer Part": "CF1/4W-4.7KΩ±5% T",
+            "Manufacturer": "CCO(千志电子)",
+            "Supplier": "LCSC",
+            "Supplier Part": "C120071"
+          }
+        ]
+      ],
+      "updateTime": 1740393290,
+      "createTime": 1740136328,
+      "histories": [],
+      "created_at": "2025-02-21 21:12:08",
+      "updated_at": "2025-02-24 20:34:50"
+    },
+    {
+      "uuid": "3d395bf890ff4cf8b47c5f3f2aaab01e",
+      "puuid": "efea9fcb440761a73600267e330e279b",
+      "title": "PCB_Meteo",
+      "filename": "PCB_Meteo.json",
+      "description": "",
+      "docType": "3",
+      "master": "",
+      "thumb": "/images/thumb-default.png",
+      "components": {
+        "e921e891113e4e908921216f753ca3db": 6,
+        "3744bcbe1f464b01ae180f32d7d4b0c4": 2,
+        "fe09a4de709343b4b313918e1952f3ba": 1,
+        "bce4bcfcccfb42a296f7a392ab0b7199": 2,
+        "1924f6721708411bac1881c9479c73d1": 1,
+        "9ea59130ae074fa3abe27de8cbf71d91": 2
+      },
+      "BOM": [
+        [
+          "Value",
+          "Quantity",
+          "Package",
+          "Components",
+          "CustomPara"
+        ],
+        [
+          "XH2.54-4P_C9900010451",
+          6,
+          "CONN-TH_XH2.54-4P-1",
+          "BME280,DISPLAY,ENS160,MH-Z1911A,RSV,RTC",
+          {
+            "Manufacturer Part": "XH2.54-4P",
+            "Manufacturer": "null",
+            "Supplier": "LCSC",
+            "Supplier Part": "C9900010451"
+          }
+        ],
+        [
+          "10uF",
+          2,
+          "CAP-TH_BD5.0-P2.00-D0.8-FD",
+          "C1,C2",
+          {
+            "Manufacturer Part": "GR106M025D11RR0VH4FP0",
+            "Manufacturer": "CX(承兴)",
+            "Supplier": "LCSC",
+            "Supplier Part": "C19576"
+          }
+        ],
+        [
+          "WAFER-XH2.54-2PZZ",
+          1,
+          "CONN-TH_XH2.54-2P_1",
+          "CN1",
+          {
+            "Manufacturer Part": "WAFER-XH2.54-2PZZ",
+            "Manufacturer": "XUNPU(讯普)",
+            "Supplier": "LCSC",
+            "Supplier Part": "C5359631"
+          }
+        ],
+        [
+          "HDR-F-2.54_1x15",
+          2,
+          "HDR-F-2.54_1X15",
+          "H1,H2",
+          {
+            "Manufacturer Part": "",
+            "Manufacturer": "",
+            "Supplier": "LCSC",
+            "Supplier Part": "C124408"
+          }
+        ],
+        [
+          "HDR-F-2.54_2x7",
+          1,
+          "HDR-F-2.54_2X7",
+          "NRF905",
+          {
+            "Manufacturer Part": "",
+            "Manufacturer": "",
+            "Supplier": "LCSC",
+            "Supplier Part": "C38844"
+          }
+        ],
+        [
+          "4.7kΩ",
+          2,
+          "RES-TH_BD2.3-L6.5-P10.50-D0.5",
+          "R1,R2",
+          {
+            "Manufacturer Part": "CF1/4W-4.7KΩ±5% T",
+            "Manufacturer": "CCO(千志电子)",
+            "Supplier": "LCSC",
+            "Supplier Part": "C120071"
+          }
+        ]
+      ],
+      "updateTime": 1740816580,
+      "createTime": 1740286919,
+      "histories": [],
+      "created_at": "2025-02-23 15:01:59",
+      "updated_at": "2025-03-01 18:09:40"
+    }
+  ],
+  "sort": [],
+  "title": "Meteo",
+  "foldername": "Meteo",
+  "schfilename": "Meteo.json",
+  "schfilemtime": 1740393290148
+}
