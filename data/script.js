@@ -96,6 +96,29 @@ function updateTable(data) {
     document.getElementById("humidity")   .textContent = data.humidity   .toFixed(2) + " %";
     document.getElementById("dewPoint")   .textContent = data.dewPoint   .toFixed(2) + " °C";
 
+    // Кайма Температура-Улица по FAN
+    const outdoorTempWidget = document.getElementById("outdoorTempWidget");
+    if (outdoorTempWidget) {
+        outdoorTempWidget.style.setProperty(
+            "--left-border-color",
+            data.FAN === 1 ? "#00cc00" : "transparent"
+        );
+    }
+
+    // Кайма Влажность-Улица по HEAT
+    const outdoorHumWidget = document.getElementById("outdoorHumWidget");
+    if (outdoorHumWidget) {
+        let borderColor = "transparent";
+
+        if (data.HEAT === 2) {
+            borderColor = "#ff0000";
+        } else if (data.HEAT === 3) {
+            borderColor = "#1194ff";
+        }
+
+        outdoorHumWidget.style.setProperty("--left-border-color", borderColor);
+    }
+
     // Домашние данные
     document.getElementById("homeTemp").textContent = data.homeTemp.toFixed(2) + " °C";
     document.getElementById("homeHum") .textContent = data.homeHum .toFixed(2) + " %";

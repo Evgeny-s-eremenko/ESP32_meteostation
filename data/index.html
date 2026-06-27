@@ -44,6 +44,17 @@
             transition: background-color 0.3s ease;
         }
 
+        .widget::before {
+            content: "";
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 4px;
+            height: 100%;
+            background: var(--left-border-color, transparent);
+            border-radius: 10px 0 0 10px;
+        }
+
         .widget:hover { background-color: #575eac; }
 
         /* ── Иконки в виджетах (классы вместо дублирующихся id) */
@@ -294,7 +305,7 @@
         <div class="widget-title">Дом</div>
 
         <!-- Температура -->
-        <div class="widget">
+        <div class="widget" id="outdoorTempWidget">
             <img class="temperature-icon" src="/temperature.png" alt="">
             <h2>Температура</h2>
             <div class="value" id="temperature"></div>
@@ -314,7 +325,7 @@
         </div>
 
         <!-- Влажность -->
-        <div class="widget">
+        <div class="widget" id="outdoorHumWidget">
             <img class="humidity-icon" src="/humidity.png" alt="">
             <h2>Влажность</h2>
             <div class="value" id="humidity"></div>
