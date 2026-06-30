@@ -131,6 +131,10 @@ function updateTable(data) {
     document.getElementById("CO2") .textContent = data.CO2 .toFixed(0) + " ppm";
     document.getElementById("TVOC").textContent = data.TVOC.toFixed(0) + " ppb";
 
+    // PM2.5 и PM10
+    document.getElementById("PM25").textContent = data["PM2.5"].toFixed(1) + " µg/m³";
+    document.getElementById("PM10").textContent = data["PM10"].toFixed(1) + " µg/m³";
+
     // Свет и УФ
     document.getElementById("LUX").textContent = data.LUX.toFixed(1) + " lux";
     document.getElementById("UV") .textContent = data.UV .toFixed(2);
@@ -145,6 +149,8 @@ function updateTable(data) {
     updateIndicator(        data.pressure,    956, 1056, "pressureBar");
     updateIndicatorAirQuality(data.CO2,  400, 2000, "CO2Bar");
     updateIndicatorAirQuality(data.TVOC,   0, 2000, "TVOCBar");
+    updateIndicatorAirQuality(data["PM2.5"], 0, 20, "PM25Bar");
+    updateIndicatorAirQuality(data["PM10"],  0, 20, "PM10Bar");
 
     // Иконки прогноза и тренда
     updateWeatherIcon(data.forecast);

@@ -96,6 +96,22 @@
 
         .pressure-widget:hover { background-color: #575eac; }
 
+        .pressure-widget-tall {
+            width: 500px;
+            height: 192px;
+            grid-column: span 2;
+            position: relative;
+            background-color: #242749;
+            color: #c7c7c7;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 2px 3px 1px rgba(0, 0, 0, 0.185);
+            text-align: center;
+            transition: background-color 0.3s ease;
+        }
+
+        .pressure-widget-tall:hover { background-color: #575eac; }
+
         #weatherIcon {
             position: absolute;
             left: 20px; top: 35%;
@@ -122,6 +138,13 @@
             left: 20px; top: 41%;
             transform: translateY(-55%);
             width: 43px; height: 79px;
+        }
+
+        #PMIcon {
+            position: absolute;
+            left: 20px; top: 41%;
+            transform: translateY(-55%);
+            width: 50px; height: 50px;
         }
 
         .widget h2 { margin-top: 0; }
@@ -420,6 +443,20 @@
             <div class="label">Концентрация TVOC</div>
             <div class="progress-bar">
                 <div class="progress-bar-fill" id="TVOCBar"></div>
+            </div>
+        </div>
+
+        <!-- PM2.5 / PM10 -->
+        <div class="pressure-widget-tall">
+            <img id="PMIcon" src="/pm.png" alt="PM">
+            <h2>PM2.5 / PM10</h2>
+            <div class="value" id="PM25"></div>
+            <div class="progress-bar">
+                <div class="progress-bar-fill" id="PM25Bar"></div>
+            </div>
+            <div class="value" id="PM10"></div>
+            <div class="progress-bar">
+                <div class="progress-bar-fill" id="PM10Bar"></div>
             </div>
         </div>
 
