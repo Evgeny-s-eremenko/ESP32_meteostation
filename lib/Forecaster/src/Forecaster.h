@@ -120,10 +120,10 @@ private:
         doc["cast"] = cast;
         doc["delta"] = delta;
 
-        String jsonString;
-        serializeJson(doc, jsonString);
+        char jsonBuf[192];
+        serializeJson(doc, jsonBuf, sizeof(jsonBuf));
 
-        if (nvs_set_str(handle, "Parr", jsonString.c_str()) == ESP_OK) {
+        if (nvs_set_str(handle, "Parr", jsonBuf) == ESP_OK) {
             nvs_commit(handle);
             //Serial.println("Данные сохранены в NVS.");
             ESP_LOGI("NVS", "Data saved to NVS");

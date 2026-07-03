@@ -179,7 +179,8 @@ double sunsetTime  = 0.0;
 //  Nextion: текущая активная страница
 // ─────────────────────────────────────────────────────────────
 
-String currentPage = "page0";
+enum NextionPage : uint8_t { PAGE0, PAGE1, PAGE2, PAGE_UNKNOWN };
+NextionPage currentPage = PAGE0;
 
 // ─────────────────────────────────────────────────────────────
 //  Параметры переподключения WiFi
@@ -389,6 +390,10 @@ void getSystemInfo(char *buffer, size_t len) {
   snprintf(uptimeStr, sizeof(uptimeStr), "%dd %02dh %02dm %02ds",
            days, hours, minutes, seconds);
 
+  IPAddress ip = WiFi.localIP();
+  char ipStr[16];
+  snprintf(ipStr, sizeof(ipStr), "%d.%d.%d.%d", ip[0], ip[1], ip[2], ip[3]);
+
   snprintf(buffer, len,
            "Uptime: %s\nChip model: %s\nChip rev.: %d\n"
            "WiFi RSSI: %d dBm\nIP address: %s\n"
@@ -398,7 +403,7 @@ void getSystemInfo(char *buffer, size_t len) {
            uptimeStr,
            ESP.getChipModel(), ESP.getChipRevision(),
            WiFi.RSSI(),
-           WiFi.localIP().toString().c_str(),
+           ipStr,
            ESP.getFreeHeap(),
            uxTaskGetStackHighWaterMark(NULL),
            uxTaskGetStackHighWaterMark(taskSendDataToInfluxDBHandle));
@@ -602,8 +607,9 @@ void sendTimeData() {
 void onWsEvent(AsyncWebSocket *server, AsyncWebSocketClient *client,
                AwsEventType type, void *arg, uint8_t *data, size_t len) {
   if (type == WS_EVT_CONNECT) {
-    ESP_LOGI("WS", "Клиент #%u подключён (%s)", client->id(),
-             client->remoteIP().toString().c_str());
+    IPAddress rip = client->remoteIP();
+    ESP_LOGI("WS", "Клиент #%u подключён (%d.%d.%d.%d)", client->id(),
+             rip[0], rip[1], rip[2], rip[3]);
   } else if (type == WS_EVT_DISCONNECT) {
     ESP_LOGI("WS", "Клиент #%u отключён", client->id());
   }
@@ -863,7 +869,8 @@ void sendDataToInfluxDB() {
   if (code > 0) {
     ESP_LOGI("InfluxDB", "HTTP %d", code);
     if (code != 204) {
-      ESP_LOGD("InfluxDB", "Ответ: %s", http.getString().c_str());
+      String resp = http.getString();
+      ESP_LOGD("InfluxDB", "Ответ: %s", resp.c_str());
     }
   } else {
     ESP_LOGE("InfluxDB", "Ошибка: %s", http.errorToString(code).c_str());
@@ -999,7 +1006,9 @@ void handleSendCommand(AsyncWebServerRequest *request) {
  
     // Белый список — только известные команды STM32
     if (cmdStr != "HEATER" && cmdStr != "NRF_REST" && cmdStr != "REST") {
-        request->send(400, "text/plain", "Неизвестная команда: " + cmdStr);
+        String resp = "Неизвестная команда: ";
+        resp.concat(cmdStr);
+        request->send(400, "text/plain", resp);
         return;
     }
  
@@ -1008,7 +1017,7 @@ void handleSendCommand(AsyncWebServerRequest *request) {
  
     if (xQueueSend(nrf905CmdQueue, cmd, pdMS_TO_TICKS(500)) == pdTRUE) {
         ESP_LOGI("NRF905_TX", "Команда поставлена в очередь: %s", cmd);
-        request->send(200, "text/plain", "OK: " + cmdStr);
+        request->send(200, "text/plain", cmdStr);
     } else {
         ESP_LOGW("NRF905_TX", "Очередь переполнена, команда отброшена: %s", cmd);
         request->send(503, "text/plain", "Очередь переполнена, попробуйте позже");
@@ -1256,31 +1265,28 @@ void taskForecast(void *pvParameters) {
 
 // Отправка данных на дисплей Nextion для страницы 0 (уличные данные)
 void sendPage0Data() {
-  String cmd;
-  cmd = "t0.txt=\"" + String(humidity)    + "%\"";    nextion.print(cmd); nextionFin();
-  cmd = "t1.txt=\"" + String(temperature) + "\xc2\xb0\x43\""; nextion.print(cmd); nextionFin();
-  cmd = "t3.txt=\"" + String(dewPoint)    + "\xc2\xb0\x43\""; nextion.print(cmd); nextionFin();
-  cmd = "t4.txt=\"" + String(pm25Level)   + " ug/m3\""; nextion.print(cmd); nextionFin();
-  cmd = "t2.txt=\"" + String(pressure)    + " hPa\"";  nextion.print(cmd); nextionFin();
+  nextion.printf("t0.txt=\"%.1f%%\"", humidity);                            nextionFin();
+  nextion.printf("t1.txt=\"%.1f\xc2\xb0\x43\"", temperature);              nextionFin();
+  nextion.printf("t3.txt=\"%.1f\xc2\xb0\x43\"", dewPoint);                 nextionFin();
+  nextion.printf("t4.txt=\"%.1f ug/m3\"", pm25Level);                       nextionFin();
+  nextion.printf("t2.txt=\"%.1f hPa\"", pressure);                          nextionFin();
 
   int pic;
   if      (forecast < 2.0f)  pic = 5;
   else if (forecast < 4.5f)  pic = 3;
   else if (forecast < 7.0f)  pic = 2;
   else                        pic = 4;
-  cmd = "p0.pic=" + String(pic);
-  nextion.print(cmd); nextionFin();
+  nextion.printf("p0.pic=%d", pic); nextionFin();
 }
 
 // Отправка данных на дисплей Nextion для страницы 1 (домашние данные)
 void sendPage1Data() {
-  String cmd;
-  cmd = "t0.txt=\"" + String(homeHum)  + "%\"";    nextion.print(cmd); nextionFin();
-  cmd = "t1.txt=\"" + String(homeTemp) + "\xc2\xb0\x43\""; nextion.print(cmd); nextionFin();
-  cmd = "t3.txt=\"" + String(homeDP)   + "\xc2\xb0\x43\""; nextion.print(cmd); nextionFin();
-  cmd = "t2.txt=\"" + String(pressure) + " hPa\""; nextion.print(cmd); nextionFin();
-  cmd = "t4.txt=\"" + String(ppm)      + " ppm\""; nextion.print(cmd); nextionFin();
-  cmd = "t5.txt=\"" + String(TVOC)     + " ppb\""; nextion.print(cmd); nextionFin();
+  nextion.printf("t0.txt=\"%.1f%%\"", homeHum);                              nextionFin();
+  nextion.printf("t1.txt=\"%.1f\xc2\xb0\x43\"", homeTemp);                  nextionFin();
+  nextion.printf("t3.txt=\"%.1f\xc2\xb0\x43\"", homeDP);                    nextionFin();
+  nextion.printf("t2.txt=\"%.1f hPa\"", pressure);                           nextionFin();
+  nextion.printf("t4.txt=\"%d ppm\"", ppm);                                  nextionFin();
+  nextion.printf("t5.txt=\"%d ppb\"", TVOC);                                 nextionFin();
 }
 
 // Отправка состояния кнопок-тумблеров на страницу 2 (таск-менеджер)
@@ -1302,12 +1308,12 @@ void processNextionMessageBinary(const uint8_t *msg, size_t len) {
   if (msg[0] == 0x66) {
     // Событие смены страницы
     switch (msg[1]) {
-      case 0x00: currentPage = "page0"; break;
-      case 0x01: currentPage = "page1"; break;
-      case 0x02: currentPage = "page2"; break;
-      default:   currentPage = "unknown"; break;
+      case 0x00: currentPage = PAGE0; break;
+      case 0x01: currentPage = PAGE1; break;
+      case 0x02: currentPage = PAGE2; break;
+      default:   currentPage = PAGE_UNKNOWN; break;
     }
-    ESP_LOGV("NEXTION", "Страница: %s", currentPage.c_str());
+    ESP_LOGV("NEXTION", "Страница: %d", currentPage);
   } else if (msg[0] == 0x65) {
     // Событие от компонента (compID)
     switch (msg[2]) {
@@ -1350,9 +1356,12 @@ void processNextionTask(void *parameter) {
 
     // Обновление данных на дисплее раз в секунду
     if (millis() - lastUpdate > 1000) {
-      if      (currentPage == "page0") sendPage0Data();
-      else if (currentPage == "page1") sendPage1Data();
-      else if (currentPage == "page2") sendPage2Data();
+      switch (currentPage) {
+        case PAGE0: sendPage0Data(); break;
+        case PAGE1: sendPage1Data(); break;
+        case PAGE2: sendPage2Data(); break;
+        default: break;
+      }
       lastUpdate = millis();
     }
 
@@ -1502,7 +1511,9 @@ void reconnectWiFi() {
 
   if (WiFi.status() == WL_CONNECTED) {
     wifi_attempts = 0;
-    ESP_LOGI("WIFI", "Переподключение успешно. RSSI: %d", WiFi.RSSI());
+    IPAddress ip = WiFi.localIP();
+    ESP_LOGI("WIFI", "Переподключение успешно. RSSI: %d IP: %d.%d.%d.%d",
+             WiFi.RSSI(), ip[0], ip[1], ip[2], ip[3]);
   }
 }
 
@@ -1544,7 +1555,8 @@ void wifi_monitor_task(void *pvParams) {
     } else if (event == ARDUINO_EVENT_WIFI_STA_GOT_IP) {
       xTimerStopFromISR(wifiTimer, &xHigherPriorityTaskWoken);
       wifi_attempts = 0;
-      ESP_LOGI("WIFI", "IP получен: %s", WiFi.localIP().toString().c_str());
+      IPAddress ip = WiFi.localIP();
+      ESP_LOGI("WIFI", "IP получен: %d.%d.%d.%d", ip[0], ip[1], ip[2], ip[3]);
     }
 
     if (xHigherPriorityTaskWoken) portYIELD_FROM_ISR();
@@ -1594,7 +1606,8 @@ void setup() {
               IPAddress(192,168,1,254));
   esp_wifi_set_ps(WIFI_PS_NONE);
   delay(1000);
-  ESP_LOGI("WIFI", "IP: %s", WiFi.localIP().toString().c_str());
+  IPAddress ip = WiFi.localIP();
+  ESP_LOGI("WIFI", "IP: %d.%d.%d.%d", ip[0], ip[1], ip[2], ip[3]);
 
   // HTTP-маршруты
   server.serveStatic("/", LittleFS, "/");
