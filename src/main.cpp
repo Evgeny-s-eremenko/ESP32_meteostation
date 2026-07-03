@@ -23,26 +23,26 @@
 //  WiFi и HTTP-сервер
 // ─────────────────────────────────────────────────────────────
 
-const char *ssid          = SECRET_WIFI_SSID;
-const char *password      = SECRET_WIFI_PASSWORD;
-const char *http_username = SECRET_HTTP_USER;
-const char *http_password = SECRET_HTTP_PASSWORD;
+char ssid[33]          = SECRET_WIFI_SSID;
+char password[65]      = SECRET_WIFI_PASSWORD;
+char http_username[33] = SECRET_HTTP_USER;
+char http_password[65] = SECRET_HTTP_PASSWORD;
 
 // ─────────────────────────────────────────────────────────────
 //  NTP
 // ─────────────────────────────────────────────────────────────
 
-const char *ntpServer          = SECRET_NTP_SERVER;
-const long   gmtOffset_sec     = SECRET_TZ_OFFSET_SEC;
-const int    daylightOffset_sec = 0;
+char   ntpServer[64]       = SECRET_NTP_SERVER;
+long   gmtOffset_sec       = SECRET_TZ_OFFSET_SEC;
+const int daylightOffset_sec = 0;
 
 // ─────────────────────────────────────────────────────────────
 //  InfluxDB
 // ─────────────────────────────────────────────────────────────
 
-const char *influxDBHost     = SECRET_INFLUX_HOST;
-const int   influxDBPort     = SECRET_INFLUX_PORT;
-const char *influxDBDatabase = SECRET_INFLUX_DATABASE;
+char influxDBHost[64]     = SECRET_INFLUX_HOST;
+int  influxDBPort         = SECRET_INFLUX_PORT;
+char influxDBDatabase[33] = SECRET_INFLUX_DATABASE;
 
 // ─────────────────────────────────────────────────────────────
 //  Пины nRF905 (SPI)
@@ -70,9 +70,9 @@ const char *influxDBDatabase = SECRET_INFLUX_DATABASE;
 //  Координаты и часовой пояс (для расчёта восхода/заката)
 // ─────────────────────────────────────────────────────────────
 
-const double lat      = SECRET_LATITUDE;
-const double lon      = SECRET_LONGITUDE;
-const int    tzOffset = SECRET_TZ_OFFSET;
+double latitude      = SECRET_LATITUDE;
+double longitude     = SECRET_LONGITUDE;
+int    tzOffset      = SECRET_TZ_OFFSET;
 
 // ─────────────────────────────────────────────────────────────
 //  UART2 → Nextion | UART1 → MH-Z19 (CO2)
@@ -551,6 +551,51 @@ bool nrf905LoadSettings(int &channel, bool &band, char *power, size_t powerLen) 
   return true;
 }
 
+// ─────────────────────────────────────────────────────────────
+//  NVS: сохранение/загрузка системных настроек
+// ─────────────────────────────────────────────────────────────
+
+nvs_handle_t settingsNvsHandle = 0;
+
+void settingsSaveAll() {
+  if (settingsNvsHandle == 0) return;
+  nvs_set_str(settingsNvsHandle, "wifi_ssid",   ssid);
+  nvs_set_str(settingsNvsHandle, "wifi_pass",   password);
+  nvs_set_str(settingsNvsHandle, "http_user",   http_username);
+  nvs_set_str(settingsNvsHandle, "http_pass",   http_password);
+  nvs_set_str(settingsNvsHandle, "influx_host", influxDBHost);
+  nvs_set_i32(settingsNvsHandle, "influx_port", influxDBPort);
+  nvs_set_str(settingsNvsHandle, "influx_db",   influxDBDatabase);
+  nvs_set_str(settingsNvsHandle, "ntp_server",  ntpServer);
+  nvs_set_i32(settingsNvsHandle, "tz_sec",      gmtOffset_sec);
+  nvs_set_str(settingsNvsHandle, "latitude",    String(latitude, 6).c_str());
+  nvs_set_str(settingsNvsHandle, "longitude",   String(longitude, 6).c_str());
+  nvs_set_i32(settingsNvsHandle, "tz_offset",   tzOffset);
+  nvs_commit(settingsNvsHandle);
+  ESP_LOGI("SETTINGS", "Настройки сохранены в NVS");
+}
+
+void settingsLoadAll() {
+  if (settingsNvsHandle == 0) return;
+  char buf[64];
+  size_t len;
+  len = sizeof(buf); if (nvs_get_str(settingsNvsHandle, "wifi_ssid", buf, &len) == ESP_OK) strncpy(ssid, buf, sizeof(ssid) - 1);
+  len = sizeof(buf); if (nvs_get_str(settingsNvsHandle, "wifi_pass", buf, &len) == ESP_OK) strncpy(password, buf, sizeof(password) - 1);
+  len = sizeof(buf); if (nvs_get_str(settingsNvsHandle, "http_user", buf, &len) == ESP_OK) strncpy(http_username, buf, sizeof(http_username) - 1);
+  len = sizeof(buf); if (nvs_get_str(settingsNvsHandle, "http_pass", buf, &len) == ESP_OK) strncpy(http_password, buf, sizeof(http_password) - 1);
+  len = sizeof(buf); if (nvs_get_str(settingsNvsHandle, "influx_host", buf, &len) == ESP_OK) strncpy(influxDBHost, buf, sizeof(influxDBHost) - 1);
+  int32_t port;
+  if (nvs_get_i32(settingsNvsHandle, "influx_port", &port) == ESP_OK) influxDBPort = (int)port;
+  len = sizeof(buf); if (nvs_get_str(settingsNvsHandle, "influx_db", buf, &len) == ESP_OK) strncpy(influxDBDatabase, buf, sizeof(influxDBDatabase) - 1);
+  len = sizeof(buf); if (nvs_get_str(settingsNvsHandle, "ntp_server", buf, &len) == ESP_OK) strncpy(ntpServer, buf, sizeof(ntpServer) - 1);
+  int32_t tz;
+  if (nvs_get_i32(settingsNvsHandle, "tz_sec", &tz) == ESP_OK) gmtOffset_sec = tz;
+  len = sizeof(buf); if (nvs_get_str(settingsNvsHandle, "latitude", buf, &len) == ESP_OK) latitude = atof(buf);
+  len = sizeof(buf); if (nvs_get_str(settingsNvsHandle, "longitude", buf, &len) == ESP_OK) longitude = atof(buf);
+  if (nvs_get_i32(settingsNvsHandle, "tz_offset", &tz) == ESP_OK) tzOffset = (int)tz;
+  ESP_LOGI("SETTINGS", "Настройки загружены из NVS");
+}
+
 // Применение настроек nRF905 из веб-формы (канал, диапазон, мощность)
 RH_NRF905::TransmitPower getTransmitPowerFromString(const String &s) {
   if (s == "TransmitPowerm10dBm") return RH_NRF905::TransmitPowerm10dBm;
@@ -588,6 +633,59 @@ void handleNRFReset(AsyncWebServerRequest *request) {
   if (!isAuthenticated(request)) return;
   resetNRF905();
   request->send(200, "text/plain", "nRF905 reset done.");
+}
+
+// ─────────────────────────────────────────────────────────────
+//  Системные настройки: GET/POST
+// ─────────────────────────────────────────────────────────────
+
+void handleGetSettings(AsyncWebServerRequest *request) {
+  if (!isAuthenticated(request)) return;
+
+  char maskedPass[17];
+  snprintf(maskedPass, sizeof(maskedPass), "****%s", password + strlen(password) - (strlen(password) > 4 ? 4 : strlen(password)));
+
+  char json[1024];
+  snprintf(json, sizeof(json),
+    "{\"wifi_ssid\":\"%s\",\"wifi_pass\":\"****\","
+    "\"http_user\":\"%s\",\"http_pass\":\"****\","
+    "\"influx_host\":\"%s\",\"influx_port\":%d,\"influx_db\":\"%s\","
+    "\"ntp_server\":\"%s\","
+    "\"latitude\":%.6f,\"longitude\":%.6f,"
+    "\"tz_offset\":%d,\"tz_sec\":%ld}",
+    ssid, http_username,
+    influxDBHost, influxDBPort, influxDBDatabase,
+    ntpServer, latitude, longitude,
+    tzOffset, gmtOffset_sec);
+
+  request->send(200, "application/json", json);
+}
+
+void handleSetSettings(AsyncWebServerRequest *request) {
+  if (!isAuthenticated(request)) return;
+
+  if (request->hasParam("wifi_ssid", true))   strncpy(ssid,          request->getParam("wifi_ssid",  true)->value().c_str(), sizeof(ssid) - 1);
+  if (request->hasParam("wifi_pass", true)) {
+    const char *p = request->getParam("wifi_pass", true)->value().c_str();
+    if (strlen(p) > 0 && strcmp(p, "****") != 0) strncpy(password, p, sizeof(password) - 1);
+  }
+  if (request->hasParam("http_user", true))   strncpy(http_username, request->getParam("http_user",  true)->value().c_str(), sizeof(http_username) - 1);
+  if (request->hasParam("http_pass", true)) {
+    const char *p = request->getParam("http_pass", true)->value().c_str();
+    if (strlen(p) > 0 && strcmp(p, "****") != 0) strncpy(http_password, p, sizeof(http_password) - 1);
+  }
+  if (request->hasParam("influx_host", true)) strncpy(influxDBHost,     request->getParam("influx_host", true)->value().c_str(), sizeof(influxDBHost) - 1);
+  if (request->hasParam("influx_port", true)) influxDBPort = request->getParam("influx_port", true)->value().toInt();
+  if (request->hasParam("influx_db", true))   strncpy(influxDBDatabase, request->getParam("influx_db",   true)->value().c_str(), sizeof(influxDBDatabase) - 1);
+  if (request->hasParam("ntp_server", true))  strncpy(ntpServer, request->getParam("ntp_server", true)->value().c_str(), sizeof(ntpServer) - 1);
+  if (request->hasParam("latitude", true))    latitude  = request->getParam("latitude",  true)->value().toDouble();
+  if (request->hasParam("longitude", true))   longitude = request->getParam("longitude", true)->value().toDouble();
+  if (request->hasParam("tz_offset", true))   tzOffset  = request->getParam("tz_offset", true)->value().toInt();
+  if (request->hasParam("tz_sec", true))      gmtOffset_sec = request->getParam("tz_sec", true)->value().toInt();
+
+  settingsSaveAll();
+  ESP_LOGI("SETTINGS", "Настройки обновлены из веб-интерфейса");
+  request->send(200, "text/plain", "Settings saved. Reboot to apply.");
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -1292,7 +1390,7 @@ void taskGetTime(void *pvParameters) {
     if (getLocalTime(&timeinfo)) {
       if (currentDay != timeinfo.tm_mday) {
         sun.setCurrentDate(timeinfo.tm_year + 1900, timeinfo.tm_mon + 1, timeinfo.tm_mday);
-        sun.setPosition(lat, lon, tzOffset);
+        sun.setPosition(latitude, longitude, tzOffset);
         sunriseTime = sun.calcSunrise();
         sunsetTime  = sun.calcSunset();
         currentDay  = timeinfo.tm_mday;
@@ -1721,6 +1819,8 @@ void setup() {
   server.on("/nrf905Status",  HTTP_GET,  handlenRFInfo);
   server.on("/setNRF905",     HTTP_ANY,  handleSetNRF905);
   server.on("/nrfreset",      HTTP_POST, handleNRFReset);
+  server.on("/getSettings",   HTTP_GET,  handleGetSettings);
+  server.on("/setSettings",   HTTP_POST, handleSetSettings);
   server.addHandler(&webSocket);
   server.addHandler(&webSocket1);
   webSocket.onEvent(onWsEvent);
@@ -1732,6 +1832,13 @@ void setup() {
   // nRF905: NVS для хранения настроек
   if (nvs_open("nrf905", NVS_READWRITE, &nrf905NvsHandle) != ESP_OK) {
     ESP_LOGE("INIT", "Не удалось открыть NVS для настроек nRF905");
+  }
+
+  // Системные настройки: загрузка из NVS
+  if (nvs_open("settings", NVS_READWRITE, &settingsNvsHandle) != ESP_OK) {
+    ESP_LOGE("INIT", "Не удалось открыть NVS для системных настроек");
+  } else {
+    settingsLoadAll();
   }
 
   // nRF905: инициализация и загрузка настроек

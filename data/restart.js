@@ -181,6 +181,53 @@ function resetNRF() {
         .catch(err => { document.getElementById("result").innerText = "Ошибка: " + err; });
 }
 
+// ── Системные настройки: загрузка и сохранение ────────────────
+
+function loadSettings() {
+    fetch("/getSettings")
+        .then(r => r.json())
+        .then(data => {
+            document.getElementById("wifi_ssid").value   = data.wifi_ssid   || "";
+            document.getElementById("wifi_pass").value   = "";
+            document.getElementById("http_user").value   = data.http_user   || "";
+            document.getElementById("http_pass").value   = "";
+            document.getElementById("influx_host").value  = data.influx_host  || "";
+            document.getElementById("influx_port").value  = data.influx_port  || 8086;
+            document.getElementById("influx_db").value    = data.influx_db    || "";
+            document.getElementById("ntp_server").value   = data.ntp_server   || "";
+            document.getElementById("latitude").value     = data.latitude     || 0;
+            document.getElementById("longitude").value    = data.longitude    || 0;
+            document.getElementById("tz_offset").value    = data.tz_offset    || 0;
+            document.getElementById("tz_sec").value       = data.tz_sec       || 0;
+        })
+        .catch(err => console.error("Ошибка загрузки настроек:", err));
+}
+
+function sendSettings() {
+    const params = new URLSearchParams();
+    params.set("wifi_ssid",   document.getElementById("wifi_ssid").value);
+    params.set("wifi_pass",   document.getElementById("wifi_pass").value || "****");
+    params.set("http_user",   document.getElementById("http_user").value);
+    params.set("http_pass",   document.getElementById("http_pass").value || "****");
+    params.set("influx_host", document.getElementById("influx_host").value);
+    params.set("influx_port", document.getElementById("influx_port").value);
+    params.set("influx_db",   document.getElementById("influx_db").value);
+    params.set("ntp_server",  document.getElementById("ntp_server").value);
+    params.set("latitude",    document.getElementById("latitude").value);
+    params.set("longitude",   document.getElementById("longitude").value);
+    params.set("tz_offset",   document.getElementById("tz_offset").value);
+    params.set("tz_sec",      document.getElementById("tz_sec").value);
+
+    fetch("/setSettings", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: params.toString()
+    })
+    .then(r => r.text())
+    .then(text => { document.getElementById("result").innerText = text; })
+    .catch(err => { document.getElementById("result").innerText = "Ошибка: " + err; });
+}
+
 // ── Инициализация при загрузке страницы ──────────────────────
 
 window.addEventListener("load", () => {
@@ -188,6 +235,7 @@ window.addEventListener("load", () => {
     loadSystemInfo();
     loadBMEInfo();
     loadNRF905Info();
+    loadSettings();
 
     // Периодическое обновление системной информации
     setInterval(() => {
