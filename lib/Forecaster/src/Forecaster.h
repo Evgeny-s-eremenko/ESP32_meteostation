@@ -137,7 +137,11 @@ private:
     void loadData() {
         size_t required_size;
         if (nvs_get_str(handle, "Parr", NULL, &required_size) == ESP_OK) {
-            char* jsonString = new char[required_size];
+            char* jsonString = new(std::nothrow) char[required_size];
+            if (!jsonString) {
+                ESP_LOGE("NVS", "Failed to allocate %u bytes", required_size);
+                return;
+            }
             if (nvs_get_str(handle, "Parr", jsonString, &required_size) == ESP_OK) {
                 StaticJsonDocument<256> doc;
                 deserializeJson(doc, jsonString);
@@ -149,12 +153,10 @@ private:
                 delta = doc["delta"];
 
                 start = true;
-                //Serial.println("Данные загружены из NVS.");
                 ESP_LOGI("NVS", "Data loaded from NVS");
             }
             delete[] jsonString;
         } else {
-            //Serial.println("Нет сохранённых данных.");
             ESP_LOGW("NVS", "No saved data in NVS");
         }
     }

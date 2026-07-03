@@ -195,6 +195,26 @@ uint8_t  wifi_attempts       = 0;
 uint32_t last_reconnect_time = 0;
 
 // ─────────────────────────────────────────────────────────────
+//  Диагностика памяти
+// ─────────────────────────────────────────────────────────────
+
+// Безопасное удаление — обнуляет указатель после освобождения
+template <typename T>
+inline void safeDelete(T *&ptr) {
+  if (ptr) { delete ptr; ptr = nullptr; }
+}
+
+template <typename T>
+inline void safeDeleteArray(T *&ptr) {
+  if (ptr) { delete[] ptr; ptr = nullptr; }
+}
+
+// Точечный лог текущего состояния кучи
+#define HEAP_CHECK(tag) \
+  ESP_LOGI(tag, "Heap: free=%u maxAlloc=%u", \
+           ESP.getFreeHeap(), ESP.getMaxAllocHeap())
+
+// ─────────────────────────────────────────────────────────────
 //  Прототипы функций
 // ─────────────────────────────────────────────────────────────
 
@@ -215,7 +235,8 @@ void  taskNRF905(void *pvParameters);
 void  taskBMP280(void *pvParameters);
 void  taskTVOCRead(void *pvParameters);
 void  taskSendDataToInfluxDB(void *pvParameters);
-void taskNRF905Tx(void *pvParameters);
+void  taskNRF905Tx(void *pvParameters);
+void  heap_monitor_task(void *pvParameters);
 
 // ─────────────────────────────────────────────────────────────
 //  Вспомогательные вычисления
@@ -1571,6 +1592,34 @@ void wifi_monitor_task(void *pvParams) {
 }
 
 // ─────────────────────────────────────────────────────────────
+//  Мониторинг кучи: лог каждые 60 сек, рестарт при критическом минимуме
+// ─────────────────────────────────────────────────────────────
+
+#define HEAP_WARN_THRESHOLD   32768   // 32 КБ — предупреждение
+#define HEAP_CRIT_THRESHOLD   16384   // 16 КБ — аварийный рестарт
+
+void heap_monitor_task(void *pvParameters) {
+  while (true) {
+    uint32_t freeHeap   = ESP.getFreeHeap();
+    uint32_t maxAlloc   = ESP.getMaxAllocHeap();
+
+    ESP_LOGI("HEAP", "free=%u maxAlloc=%u", freeHeap, maxAlloc);
+
+    if (freeHeap < HEAP_CRIT_THRESHOLD) {
+      ESP_LOGE("HEAP", "Критический минимум кучи (%u байт)! Перезагрузка...", freeHeap);
+      vTaskDelay(pdMS_TO_TICKS(1000));
+      ESP.restart();
+    }
+
+    if (freeHeap < HEAP_WARN_THRESHOLD) {
+      ESP_LOGW("HEAP", "Мало свободной памяти (%u байт)", freeHeap);
+    }
+
+    vTaskDelay(pdMS_TO_TICKS(60000));
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
 //  Setup
 // ─────────────────────────────────────────────────────────────
 
@@ -1693,6 +1742,7 @@ void setup() {
   xTaskCreate(taskForecast,           "Forecast task",    2048, NULL, 1, &taskForecasterHandle);
   xTaskCreate(processNextionTask,     "Nextion",          4096, NULL, 3, &processNextionTaskHandle);
   xTaskCreatePinnedToCore(wifi_monitor_task, "WiFiMonitor", 2048, NULL, 2, NULL, 0);
+  xTaskCreatePinnedToCore(heap_monitor_task, "HeapMonitor", 2048, NULL, 1, NULL, 0);
 }
 
 // ─────────────────────────────────────────────────────────────
