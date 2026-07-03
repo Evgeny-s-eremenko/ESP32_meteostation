@@ -1090,6 +1090,7 @@ void taskNRF905(void *pvParameters) {
   unsigned long lastReceived        = millis();
   const uint8_t EXPECTED_LEN        = 18;   // burst_id(1) + данные(16) + CRC(1)
   uint8_t       last_burst_id       = 0xFF; // 0xFF ≠ первый burst_id=0 → гарантированный приём
+  uint8_t       recoveryState       = 0;    // 0=норма, 1-2=NRF_REST, 3=REST
 
   while (true) {
     if (xSemaphoreTake(driverMutex, portMAX_DELAY) == pdTRUE) {
@@ -1156,6 +1157,10 @@ void taskNRF905(void *pvParameters) {
           dewPoint    = calculateDewPoint(temperature, humidity);
 
           lastReceived = millis();
+          if (recoveryState > 0) {
+            ESP_LOGI("NRF905", "Связь восстановлена (состояние %d → 0)", recoveryState);
+            recoveryState = 0;
+          }
           ESP_LOGI("NRF905",
                    "OK [burst=%u] HEAT=%u FAN=%u T=%.2f H=%.2f "
                    "UV=%.2f LUX=%.1f PM2.5=%.1f PM10=%.1f",
@@ -1167,10 +1172,23 @@ void taskNRF905(void *pvParameters) {
       xSemaphoreGive(driverMutex);
     }
 
-    // Аппаратный сброс nRF905 при отсутствии данных более 10 минут
-    if (millis() - lastReceived >= 600000UL) {
-      ESP_LOGE("NRF905", "Нет данных >10 мин, выполняю сброс...");
-      resetNRF905();
+    // Восстановление связи: 3 стадии по 5 минут
+    if (millis() - lastReceived >= 300000UL) {
+      recoveryState++;
+
+      if (recoveryState <= 2) {
+        ESP_LOGE("NRF905", "Нет данных >%d мин, NRF_REST (попытка %d)...",
+                 recoveryState * 5, recoveryState);
+        resetNRF905();
+        char cmd[] = "NRF_REST";
+        xQueueSend(nrf905CmdQueue, cmd, pdMS_TO_TICKS(500));
+      } else {
+        ESP_LOGE("NRF905", "NRF_REST не помог, отправляю REST...");
+        char cmd[] = "REST";
+        xQueueSend(nrf905CmdQueue, cmd, pdMS_TO_TICKS(500));
+        recoveryState = 0;
+      }
+
       lastReceived = millis();
     }
 
