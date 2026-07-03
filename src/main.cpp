@@ -136,6 +136,7 @@ SemaphoreHandle_t i2cMutex;
 SemaphoreHandle_t driverMutex;
 portMUX_TYPE      mutexMux  = portMUX_INITIALIZER_UNLOCKED;
 TimerHandle_t     wifiTimer;
+nvs_handle_t      nrf905NvsHandle = 0;
 
 // ─────────────────────────────────────────────────────────────
 //  Глобальные переменные датчиков
@@ -525,6 +526,31 @@ void handlenRFInfo(AsyncWebServerRequest *request) {
   }
 }
 
+// ─────────────────────────────────────────────────────────────
+//  NVS: сохранение/загрузка настроек nRF905
+// ─────────────────────────────────────────────────────────────
+
+void nrf905SaveSettings(int channel, bool band, const char *power) {
+  if (nrf905NvsHandle == 0) return;
+  nvs_set_i32(nrf905NvsHandle, "channel", channel);
+  nvs_set_u8(nrf905NvsHandle, "band", band ? 1 : 0);
+  nvs_set_str(nrf905NvsHandle, "power", power);
+  nvs_commit(nrf905NvsHandle);
+  ESP_LOGI("NRF905", "Настройки сохранены в NVS: ch=%d band=%d pwr=%s", channel, band, power);
+}
+
+bool nrf905LoadSettings(int &channel, bool &band, char *power, size_t powerLen) {
+  if (nrf905NvsHandle == 0) return false;
+  int32_t ch; uint8_t b;
+  if (nvs_get_i32(nrf905NvsHandle, "channel", &ch) != ESP_OK) return false;
+  if (nvs_get_u8(nrf905NvsHandle, "band", &b) != ESP_OK) return false;
+  if (nvs_get_str(nrf905NvsHandle, "power", power, &powerLen) != ESP_OK) return false;
+  channel = (int)ch;
+  band = (b != 0);
+  ESP_LOGI("NRF905", "Настройки загружены из NVS: ch=%d band=%d pwr=%s", channel, band, power);
+  return true;
+}
+
 // Применение настроек nRF905 из веб-формы (канал, диапазон, мощность)
 RH_NRF905::TransmitPower getTransmitPowerFromString(const String &s) {
   if (s == "TransmitPowerm10dBm") return RH_NRF905::TransmitPowerm10dBm;
@@ -551,6 +577,7 @@ void handleSetNRF905(AsyncWebServerRequest *request) {
       driver.setRF(getTransmitPowerFromString(powerStr));
       xSemaphoreGive(driverMutex);
     }
+    nrf905SaveSettings(channel, band, powerStr.c_str());
     request->send(200, "text/plain", "nRF905 settings applied");
   } else {
     request->send(400, "text/plain", "Invalid parameters");
@@ -1702,12 +1729,24 @@ void setup() {
 
   nextionRestart();
 
-  // nRF905
+  // nRF905: NVS для хранения настроек
+  if (nvs_open("nrf905", NVS_READWRITE, &nrf905NvsHandle) != ESP_OK) {
+    ESP_LOGE("INIT", "Не удалось открыть NVS для настроек nRF905");
+  }
+
+  // nRF905: инициализация и загрузка настроек
   if (!driver.init()) {
     ESP_LOGE("INIT", "nRF905 не инициализирован!");
   } else {
-    driver.setChannel(175, false);    // 439.9 МГц
-    driver.setRF(RH_NRF905::TransmitPower10dBm);
+    int ch = 175; bool band = false;
+    char pwr[32] = "TransmitPower10dBm";
+    if (nrf905LoadSettings(ch, band, pwr, sizeof(pwr))) {
+      driver.setChannel(ch, band);
+      driver.setRF(getTransmitPowerFromString(pwr));
+    } else {
+      driver.setChannel(175, false);    // 439.9 МГц
+      driver.setRF(RH_NRF905::TransmitPower10dBm);
+    }
     ESP_LOGI("INIT", "nRF905 готов");
   }
 
