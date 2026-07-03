@@ -418,16 +418,16 @@ void getSystemInfo(char *buffer, size_t len) {
   snprintf(buffer, len,
            "Uptime: %s\nChip model: %s\nChip rev.: %d\n"
            "WiFi RSSI: %d dBm\nIP address: %s\n"
-           "Free Heap: %d bytes\n"
-           "WebServer free stack: %d bytes\n"
-           "InfluxDB free stack: %d bytes\n",
+           "Free Heap: %u bytes\nMax Alloc: %u bytes\n"
+           "%s"
+           "WebServer free stack: %d bytes\n",
            uptimeStr,
            ESP.getChipModel(), ESP.getChipRevision(),
            WiFi.RSSI(),
            ipStr,
-           ESP.getFreeHeap(),
-           uxTaskGetStackHighWaterMark(NULL),
-           uxTaskGetStackHighWaterMark(taskSendDataToInfluxDBHandle));
+           ESP.getFreeHeap(), ESP.getMaxAllocHeap(),
+           (ESP.getFreeHeap() < 32768) ? "*** LOW MEMORY ***\n" : "",
+           uxTaskGetStackHighWaterMark(NULL));
 }
 
 void handleSysInfo(AsyncWebServerRequest *request) {
