@@ -186,8 +186,17 @@ double sunsetTime  = 0.0;
 //  Nextion: текущая активная страница
 // ─────────────────────────────────────────────────────────────
 
-enum NextionPage : uint8_t { PAGE0, PAGE1, PAGE2, PAGE_UNKNOWN };
+enum NextionPage : uint8_t { PAGE0, PAGE1, PAGE2, PAGE3, PAGE_UNKNOWN };
 NextionPage currentPage = PAGE0;
+
+// ─────────────────────────────────────────────────────────────
+//  Nextion: конфигурация WiFi через дисплей
+// ─────────────────────────────────────────────────────────────
+
+enum WifiCfgState { WIFI_CFG_IDLE, WIFI_CFG_WAIT_SSID, WIFI_CFG_WAIT_PASS };
+WifiCfgState wifiCfgState = WIFI_CFG_IDLE;
+char wifiCfgSSID[33] = {};
+char wifiCfgPass[65] = {};
 
 // ─────────────────────────────────────────────────────────────
 //  Параметры переподключения WiFi
@@ -653,9 +662,7 @@ void handleNRFReset(AsyncWebServerRequest *request) {
   request->send(200, "text/plain", "nRF905 reset done.");
 }
 
-void handleResetNVS(AsyncWebServerRequest *request) {
-  if (!isAuthenticated(request)) return;
-
+void resetNVS() {
   ESP_LOGW("NVS", "Полная очистка NVS...");
 
   if (nrf905NvsHandle != 0) { nvs_close(nrf905NvsHandle); nrf905NvsHandle = 0; }
@@ -664,9 +671,14 @@ void handleResetNVS(AsyncWebServerRequest *request) {
   nvs_flash_erase();
   nvs_flash_init();
 
-  request->send(200, "text/plain", "NVS cleared.");
   delay(500);
   ESP.restart();
+}
+
+void handleResetNVS(AsyncWebServerRequest *request) {
+  if (!isAuthenticated(request)) return;
+  request->send(200, "text/plain", "NVS cleared.");
+  resetNVS();
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -1180,6 +1192,13 @@ void switchTaskTVOCRead() {
   sendTaskStateUpdate();
 }
 
+// Ставит команду STM32 в очередь отправки через nRF905
+void queueStmCommand(const char* cmd) {
+    char buf[NRF905_CMD_LEN] = {};
+    strncpy(buf, cmd, NRF905_CMD_LEN - 1);
+    xQueueSend(nrf905CmdQueue, buf, pdMS_TO_TICKS(500));
+}
+
 // Ставит текстовую команду в очередь отправки на внешний блок STM32.
 // POST /sendCommand   тело: cmd=HEATER|NRF_REST|REST
 void handleSendCommand(AsyncWebServerRequest *request) {
@@ -1508,6 +1527,41 @@ void sendPage2Data() {
   syncButtonState(5, taskSendDataToInfluxDBHandle);
   syncButtonState(6, taskForecasterHandle);
   syncButtonState(7, taskGetTimeHandle);
+  syncButtonState(0, taskTVOCReadHandle);
+}
+
+// Отправка системной информации на страницу 3 (WiFi + diag)
+void sendPage3Data() {
+  char info[256];
+  if (WiFi.status() == WL_CONNECTED) {
+    IPAddress ip = WiFi.localIP();
+    unsigned long sec = millis() / 1000;
+    unsigned long h = sec / 3600;
+    unsigned long m = (sec % 3600) / 60;
+    snprintf(info, sizeof(info),
+      "WiFi: Connected\r\n"
+      "SSID: %s\r\n"
+      "IP: %d.%d.%d.%d\r\n"
+      "RSSI: %d dBm\r\n"
+      "Uptime: %luh %lum\r\n"
+      "Free Heap: %u KB\r\n"
+      "Max Alloc: %u KB",
+      WiFi.SSID().c_str(),
+      ip[0], ip[1], ip[2], ip[3],
+      WiFi.RSSI(),
+      h, m,
+      ESP.getFreeHeap() / 1024,
+      ESP.getMaxAllocHeap() / 1024);
+  } else {
+    snprintf(info, sizeof(info),
+      "WiFi: Disconnected\r\n"
+      "Free Heap: %u KB\r\n"
+      "Max Alloc: %u KB",
+      ESP.getFreeHeap() / 1024,
+      ESP.getMaxAllocHeap() / 1024);
+  }
+  nextion.printf("t2.txt=\"%s\"", info);
+  nextionFin();
 }
 
 // Разбор бинарного сообщения от Nextion (события кнопок и смены страниц)
@@ -1521,22 +1575,77 @@ void processNextionMessageBinary(const uint8_t *msg, size_t len) {
       case 0x00: currentPage = PAGE0; break;
       case 0x01: currentPage = PAGE1; break;
       case 0x02: currentPage = PAGE2; break;
+      case 0x03: currentPage = PAGE3; break;
       default:   currentPage = PAGE_UNKNOWN; break;
     }
     ESP_LOGV("NEXTION", "Страница: %d", currentPage);
   } else if (msg[0] == 0x65) {
-    // Событие от компонента (compID)
-    switch (msg[2]) {
-      case 0x03: handleRestartFromNextion(); break;
-      case 0x04: resetNRF905();             break;
-      case 0x05: ESP.restart();             break;
-      case 0x07: switchTaskNRF905();    syncButtonState(1, taskNRF905Handle);             break;
-      case 0x08: switchTaskCO2Read();   syncButtonState(2, taskCO2ReadHandle);            break;
-      case 0x09: switchTaskNextion();   syncButtonState(3, processNextionTaskHandle);     break;
-      case 0x0A: switchTaskBMP280();    syncButtonState(4, taskBMP280Handle);             break;
-      case 0x0B: switchTaskInfluxDB();  syncButtonState(5, taskSendDataToInfluxDBHandle); break;
-      case 0x0C: switchTaskForecaster();syncButtonState(6, taskForecasterHandle);         break;
-      case 0x0D: switchTaskNTP();       syncButtonState(7, taskGetTimeHandle);            break;
+    // Событие от компонента (page, compID, event)
+    uint8_t page  = msg[1];
+    uint8_t compID = msg[2];
+
+    if (page == 0x02) {
+      // Страница 0x02 — управление
+      switch (compID) {
+        case 0x03: handleRestartFromNextion(); break;
+        case 0x04: resetNRF905();              break;
+        case 0x05: resetNVS();                  break;
+        case 0x06: switchTaskTVOCRead();   syncButtonState(0, taskTVOCReadHandle);           break;
+        case 0x07: switchTaskNRF905();     syncButtonState(1, taskNRF905Handle);             break;
+        case 0x08: switchTaskCO2Read();    syncButtonState(2, taskCO2ReadHandle);            break;
+        case 0x09: switchTaskNextion();    syncButtonState(3, processNextionTaskHandle);     break;
+        case 0x0A: switchTaskBMP280();     syncButtonState(4, taskBMP280Handle);             break;
+        case 0x0B: switchTaskInfluxDB();   syncButtonState(5, taskSendDataToInfluxDBHandle); break;
+        case 0x0C: switchTaskForecaster(); syncButtonState(6, taskForecasterHandle);         break;
+        case 0x0D: switchTaskNTP();        syncButtonState(7, taskGetTimeHandle);            break;
+        case 0x0F: queueStmCommand("HEATER");  ESP_LOGI("NEXTION", "HEATER → STM32");  break;
+        case 0x10: queueStmCommand("NRF_REST"); ESP_LOGI("NEXTION", "NRF_REST → STM32"); break;
+        case 0x11: queueStmCommand("REST");     ESP_LOGI("NEXTION", "REST → STM32");     break;
+      }
+    } else if (page == 0x03 && compID == 0x03) {
+      // Страница 0x03 — кнопка WiFi: ожидаем SSID и Password (пакеты 0x70)
+      wifiCfgState = WIFI_CFG_WAIT_SSID;
+      ESP_LOGI("NEXTION", "WiFi config: ожидание SSID");
+    }
+  } else if (msg[0] == 0x70 && wifiCfgState != WIFI_CFG_IDLE) {
+    // Строка от Nextion (SSID или Password после нажатия кнопки WiFi)
+    // msg[1..len-4] — содержимое строки (без 0x70 и 0xFF 0xFF 0xFF)
+    size_t strLen = len - 4; // убираем 0x70 и три 0xFF
+    if (strLen >= sizeof(wifiCfgSSID)) strLen = sizeof(wifiCfgSSID) - 1;
+
+    if (wifiCfgState == WIFI_CFG_WAIT_SSID) {
+      memcpy(wifiCfgSSID, &msg[1], strLen);
+      wifiCfgSSID[strLen] = '\0';
+      wifiCfgState = WIFI_CFG_WAIT_PASS;
+      ESP_LOGI("NEXTION", "WiFi SSID: %s", wifiCfgSSID);
+    } else if (wifiCfgState == WIFI_CFG_WAIT_PASS) {
+      memcpy(wifiCfgPass, &msg[1], strLen);
+      wifiCfgPass[strLen] = '\0';
+      wifiCfgState = WIFI_CFG_IDLE;
+      ESP_LOGI("NEXTION", "WiFi: пробуем подключиться к %s", wifiCfgSSID);
+
+      // Отключаемся от текущей сети
+      WiFi.disconnect(true);
+      delay(100);
+      WiFi.begin(wifiCfgSSID, wifiCfgPass);
+
+      // Ждём до 15 сек
+      unsigned long start = millis();
+      while (WiFi.status() != WL_CONNECTED && millis() - start < 15000) {
+        delay(500);
+      }
+
+      if (WiFi.status() == WL_CONNECTED) {
+        strncpy(ssid, wifiCfgSSID, sizeof(ssid) - 1);
+        strncpy(password, wifiCfgPass, sizeof(password) - 1);
+        settingsSaveAll();
+        ESP_LOGI("NEXTION", "WiFi подключён! IP: %s", WiFi.localIP().toString().c_str());
+        wifi_attempts = 0;
+      } else {
+        ESP_LOGW("NEXTION", "WiFi: не удалось подключиться к %s", wifiCfgSSID);
+      }
+      memset(wifiCfgSSID, 0, sizeof(wifiCfgSSID));
+      memset(wifiCfgPass, 0, sizeof(wifiCfgPass));
     }
   }
 }
@@ -1547,6 +1656,7 @@ void processNextionTask(void *parameter) {
   uint8_t      buffer[bufSize];
   size_t       bufIndex     = 0;
   unsigned long lastUpdate  = millis();
+  unsigned long lastPage3Update = millis();
 
   for (;;) {
     while (nextion.available()) {
@@ -1573,6 +1683,12 @@ void processNextionTask(void *parameter) {
         default: break;
       }
       lastUpdate = millis();
+    }
+
+    // Страница 3 — системная информация раз в 2 секунды
+    if (currentPage == PAGE3 && millis() - lastPage3Update > 2000) {
+      sendPage3Data();
+      lastPage3Update = millis();
     }
 
     vTaskDelay(pdMS_TO_TICKS(15));
