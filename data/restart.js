@@ -191,6 +191,14 @@ function loadSettings() {
             document.getElementById("wifi_pass").value   = "";
             document.getElementById("http_user").value   = data.http_user   || "";
             document.getElementById("http_pass").value   = "";
+            const ipMode = data.use_static_ip || 0;
+            document.getElementById("use_static_ip").value = ipMode;
+            document.getElementById("static_ip").value     = data.static_ip      || "";
+            document.getElementById("static_gateway").value = data.static_gateway || "";
+            document.getElementById("static_subnet").value  = data.static_subnet  || "";
+            document.getElementById("static_dns").value     = data.static_dns     || "";
+            document.getElementById("static_ip_fields").style.display =
+                ipMode == 1 ? "block" : "none";
             document.getElementById("influx_host").value  = data.influx_host  || "";
             document.getElementById("influx_port").value  = data.influx_port  || 8086;
             document.getElementById("influx_db").value    = data.influx_db    || "";
@@ -209,6 +217,11 @@ function sendSettings() {
     params.set("wifi_pass",   document.getElementById("wifi_pass").value || "****");
     params.set("http_user",   document.getElementById("http_user").value);
     params.set("http_pass",   document.getElementById("http_pass").value || "****");
+    params.set("use_static_ip", document.getElementById("use_static_ip").value);
+    params.set("static_ip",     document.getElementById("static_ip").value);
+    params.set("static_gateway",document.getElementById("static_gateway").value);
+    params.set("static_subnet", document.getElementById("static_subnet").value);
+    params.set("static_dns",    document.getElementById("static_dns").value);
     params.set("influx_host", document.getElementById("influx_host").value);
     params.set("influx_port", document.getElementById("influx_port").value);
     params.set("influx_db",   document.getElementById("influx_db").value);

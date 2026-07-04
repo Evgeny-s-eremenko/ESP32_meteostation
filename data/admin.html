@@ -319,10 +319,31 @@
             <input type="text" id="http_user" name="http_user">
             <label for="http_pass">HTTP Пароль:</label>
             <input type="password" id="http_pass" name="http_pass" placeholder="****">
+            <label for="use_static_ip">Режим сети:</label>
+            <select id="use_static_ip" name="use_static_ip">
+                <option value="0" selected>DHCP</option>
+                <option value="1">Статический IP</option>
+            </select>
+            <div id="static_ip_fields" style="display:none;">
+                <label for="static_ip">IP адрес:</label>
+                <input type="text" id="static_ip" name="static_ip" placeholder="192.168.1.230">
+                <label for="static_gateway">Шлюз:</label>
+                <input type="text" id="static_gateway" name="static_gateway" placeholder="192.168.1.254">
+                <label for="static_subnet">Маска подсети:</label>
+                <input type="text" id="static_subnet" name="static_subnet" placeholder="255.255.255.0">
+                <label for="static_dns">DNS сервер:</label>
+                <input type="text" id="static_dns" name="static_dns" placeholder="192.168.1.254">
+            </div>
             <button type="button" class="settings-btn" onclick="sendSettings()">Сохранить настройки</button>
         </form>
     </div>
 
+    <script>
+    document.getElementById("use_static_ip").addEventListener("change", function() {
+        document.getElementById("static_ip_fields").style.display =
+            this.value === "1" ? "block" : "none";
+    });
+    </script>
     <script src="/restart.js"></script>
 </body>
 </html>

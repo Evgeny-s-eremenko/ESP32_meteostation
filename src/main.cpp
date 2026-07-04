@@ -28,6 +28,12 @@ char password[65]      = SECRET_WIFI_PASSWORD;
 char http_username[33] = SECRET_HTTP_USER;
 char http_password[65] = SECRET_HTTP_PASSWORD;
 
+bool   useStaticIP       = SECRET_USE_STATIC_IP;
+char   staticIP[16]      = SECRET_STATIC_IP;
+char   staticGateway[16] = SECRET_STATIC_GATEWAY;
+char   staticSubnet[16]  = SECRET_STATIC_SUBNET;
+char   staticDNS[16]     = SECRET_STATIC_DNS;
+
 // ─────────────────────────────────────────────────────────────
 //  NTP
 // ─────────────────────────────────────────────────────────────
@@ -563,6 +569,11 @@ void settingsSaveAll() {
   nvs_set_str(settingsNvsHandle, "wifi_pass",   password);
   nvs_set_str(settingsNvsHandle, "http_user",   http_username);
   nvs_set_str(settingsNvsHandle, "http_pass",   http_password);
+  nvs_set_u8(settingsNvsHandle, "use_static_ip",  useStaticIP ? 1 : 0);
+  nvs_set_str(settingsNvsHandle, "static_ip",      staticIP);
+  nvs_set_str(settingsNvsHandle, "static_gateway", staticGateway);
+  nvs_set_str(settingsNvsHandle, "static_subnet",  staticSubnet);
+  nvs_set_str(settingsNvsHandle, "static_dns",     staticDNS);
   nvs_set_str(settingsNvsHandle, "influx_host", influxDBHost);
   nvs_set_i32(settingsNvsHandle, "influx_port", influxDBPort);
   nvs_set_str(settingsNvsHandle, "influx_db",   influxDBDatabase);
@@ -583,6 +594,12 @@ void settingsLoadAll() {
   len = sizeof(buf); if (nvs_get_str(settingsNvsHandle, "wifi_pass", buf, &len) == ESP_OK) strncpy(password, buf, sizeof(password) - 1);
   len = sizeof(buf); if (nvs_get_str(settingsNvsHandle, "http_user", buf, &len) == ESP_OK) strncpy(http_username, buf, sizeof(http_username) - 1);
   len = sizeof(buf); if (nvs_get_str(settingsNvsHandle, "http_pass", buf, &len) == ESP_OK) strncpy(http_password, buf, sizeof(http_password) - 1);
+  uint8_t ipMode;
+  if (nvs_get_u8(settingsNvsHandle, "use_static_ip", &ipMode) == ESP_OK) useStaticIP = (ipMode != 0);
+  len = sizeof(buf); if (nvs_get_str(settingsNvsHandle, "static_ip", buf, &len) == ESP_OK) strncpy(staticIP, buf, sizeof(staticIP) - 1);
+  len = sizeof(buf); if (nvs_get_str(settingsNvsHandle, "static_gateway", buf, &len) == ESP_OK) strncpy(staticGateway, buf, sizeof(staticGateway) - 1);
+  len = sizeof(buf); if (nvs_get_str(settingsNvsHandle, "static_subnet", buf, &len) == ESP_OK) strncpy(staticSubnet, buf, sizeof(staticSubnet) - 1);
+  len = sizeof(buf); if (nvs_get_str(settingsNvsHandle, "static_dns", buf, &len) == ESP_OK) strncpy(staticDNS, buf, sizeof(staticDNS) - 1);
   len = sizeof(buf); if (nvs_get_str(settingsNvsHandle, "influx_host", buf, &len) == ESP_OK) strncpy(influxDBHost, buf, sizeof(influxDBHost) - 1);
   int32_t port;
   if (nvs_get_i32(settingsNvsHandle, "influx_port", &port) == ESP_OK) influxDBPort = (int)port;
@@ -645,15 +662,17 @@ void handleGetSettings(AsyncWebServerRequest *request) {
   char maskedPass[17];
   snprintf(maskedPass, sizeof(maskedPass), "****%s", password + strlen(password) - (strlen(password) > 4 ? 4 : strlen(password)));
 
-  char json[1024];
+  char json[1536];
   snprintf(json, sizeof(json),
     "{\"wifi_ssid\":\"%s\",\"wifi_pass\":\"****\","
     "\"http_user\":\"%s\",\"http_pass\":\"****\","
+    "\"use_static_ip\":%d,\"static_ip\":\"%s\",\"static_gateway\":\"%s\",\"static_subnet\":\"%s\",\"static_dns\":\"%s\","
     "\"influx_host\":\"%s\",\"influx_port\":%d,\"influx_db\":\"%s\","
     "\"ntp_server\":\"%s\","
     "\"latitude\":%.6f,\"longitude\":%.6f,"
     "\"tz_offset\":%d,\"tz_sec\":%ld}",
     ssid, http_username,
+    useStaticIP ? 1 : 0, staticIP, staticGateway, staticSubnet, staticDNS,
     influxDBHost, influxDBPort, influxDBDatabase,
     ntpServer, latitude, longitude,
     tzOffset, gmtOffset_sec);
@@ -674,6 +693,16 @@ void handleSetSettings(AsyncWebServerRequest *request) {
     const char *p = request->getParam("http_pass", true)->value().c_str();
     if (strlen(p) > 0 && strcmp(p, "****") != 0) strncpy(http_password, p, sizeof(http_password) - 1);
   }
+  if (request->hasParam("use_static_ip", true))
+    useStaticIP = (request->getParam("use_static_ip", true)->value() == "1");
+  if (request->hasParam("static_ip", true))
+    strncpy(staticIP, request->getParam("static_ip", true)->value().c_str(), sizeof(staticIP) - 1);
+  if (request->hasParam("static_gateway", true))
+    strncpy(staticGateway, request->getParam("static_gateway", true)->value().c_str(), sizeof(staticGateway) - 1);
+  if (request->hasParam("static_subnet", true))
+    strncpy(staticSubnet, request->getParam("static_subnet", true)->value().c_str(), sizeof(staticSubnet) - 1);
+  if (request->hasParam("static_dns", true))
+    strncpy(staticDNS, request->getParam("static_dns", true)->value().c_str(), sizeof(staticDNS) - 1);
   if (request->hasParam("influx_host", true)) strncpy(influxDBHost,     request->getParam("influx_host", true)->value().c_str(), sizeof(influxDBHost) - 1);
   if (request->hasParam("influx_port", true)) influxDBPort = request->getParam("influx_port", true)->value().toInt();
   if (request->hasParam("influx_db", true))   strncpy(influxDBDatabase, request->getParam("influx_db",   true)->value().c_str(), sizeof(influxDBDatabase) - 1);
@@ -1662,10 +1691,7 @@ void reconnectWiFi() {
   WiFi.begin(ssid, password);
   WiFi.setAutoReconnect(false);
   WiFi.persistent(false);
-  WiFi.config(IPAddress(192,168,1,230),
-              IPAddress(192,168,1,254),
-              IPAddress(255,255,255,0),
-              IPAddress(192,168,1,254));
+  applyWiFiConfig();
   esp_wifi_set_ps(WIFI_PS_NONE);
 
   uint32_t start = millis();
@@ -1763,6 +1789,24 @@ void heap_monitor_task(void *pvParameters) {
 }
 
 // ─────────────────────────────────────────────────────────────
+//  WiFi config helper
+// ─────────────────────────────────────────────────────────────
+
+void applyWiFiConfig() {
+    if (useStaticIP && staticIP[0] != '\0') {
+        IPAddress ip, gw, sn, dns;
+        ip.fromString(staticIP);
+        gw.fromString(staticGateway);
+        sn.fromString(staticSubnet);
+        dns.fromString(staticDNS);
+        WiFi.config(ip, gw, sn, dns);
+        ESP_LOGI("WIFI", "Static IP: %s", staticIP);
+    } else {
+        ESP_LOGI("WIFI", "Using DHCP");
+    }
+}
+
+// ─────────────────────────────────────────────────────────────
 //  Setup
 // ─────────────────────────────────────────────────────────────
 
@@ -1792,10 +1836,7 @@ void setup() {
   WiFi.begin(ssid, password);
   WiFi.setAutoReconnect(false);
   WiFi.persistent(false);
-  WiFi.config(IPAddress(192,168,1,230),
-              IPAddress(192,168,1,254),
-              IPAddress(255,255,255,0),
-              IPAddress(192,168,1,254));
+  applyWiFiConfig();
   esp_wifi_set_ps(WIFI_PS_NONE);
   delay(1000);
   IPAddress ip = WiFi.localIP();
