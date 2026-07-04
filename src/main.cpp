@@ -231,6 +231,7 @@ void  resetI2CBus();
 void  resetNRF905();
 void  nextionRestart();
 void  reconnectWiFi();
+void  applyWiFiConfig();
 void  sendTaskStateUpdate();
 float calculateDewPoint(float temp, float hum);
 float calculatehomeDP(float temp, float hum);
