@@ -181,6 +181,24 @@ function resetNRF() {
         .catch(err => { document.getElementById("result").innerText = "Ошибка: " + err; });
 }
 
+// ── Полная очистка NVS (сброс всех настроек) ─────────────────
+
+function resetNVS() {
+    if (!confirm("Внимание: все настройки будут сброшены!\nWiFi, InfluxDB, nRF905 — всё вернётся к значениям по умолчанию.\n\nПродолжить?")) return;
+
+    const resultEl = document.getElementById("result");
+    resultEl.innerText = "Очистка NVS...";
+
+    fetch("/resetNVS", { method: "POST" })
+        .then(r => r.text())
+        .then(text => {
+            resultEl.innerText = text + "\nУстройство перезагружается...";
+        })
+        .catch(err => {
+            resultEl.innerText = "Ошибка: " + err;
+        });
+}
+
 // ── Системные настройки: загрузка и сохранение ────────────────
 
 function loadSettings() {

@@ -653,6 +653,22 @@ void handleNRFReset(AsyncWebServerRequest *request) {
   request->send(200, "text/plain", "nRF905 reset done.");
 }
 
+void handleResetNVS(AsyncWebServerRequest *request) {
+  if (!isAuthenticated(request)) return;
+
+  ESP_LOGW("NVS", "Полная очистка NVS...");
+
+  if (nrf905NvsHandle != 0) { nvs_close(nrf905NvsHandle); nrf905NvsHandle = 0; }
+  if (settingsNvsHandle != 0) { nvs_close(settingsNvsHandle); settingsNvsHandle = 0; }
+
+  nvs_flash_erase();
+  nvs_flash_init();
+
+  request->send(200, "text/plain", "NVS cleared.");
+  delay(500);
+  ESP.restart();
+}
+
 // ─────────────────────────────────────────────────────────────
 //  Системные настройки: GET/POST
 // ─────────────────────────────────────────────────────────────
@@ -1861,6 +1877,7 @@ void setup() {
   server.on("/nrf905Status",  HTTP_GET,  handlenRFInfo);
   server.on("/setNRF905",     HTTP_ANY,  handleSetNRF905);
   server.on("/nrfreset",      HTTP_POST, handleNRFReset);
+  server.on("/resetNVS",      HTTP_POST, handleResetNVS);
   server.on("/getSettings",   HTTP_GET,  handleGetSettings);
   server.on("/setSettings",   HTTP_POST, handleSetSettings);
   server.addHandler(&webSocket);
