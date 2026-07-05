@@ -306,6 +306,25 @@
             border-radius: 50%;
             background: gold;
             transform: translate(-50%, -50%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        #sunElevation {
+            font-size: 9px;
+            font-weight: bold;
+            color: #333;
+            text-align: center;
+            line-height: 1;
+            pointer-events: none;
+        }
+
+        .solar-noon-label {
+            text-align: center;
+            font-size: 14px;
+            color: #ffd700;
+            margin-bottom: 5px;
         }
 
         .bottom-row {
@@ -409,6 +428,7 @@
 
         <!-- Восход/Закат + освещённость + УФ -->
         <div class="sunset-widget">
+            <div class="solar-noon-label" id="solarNoonLabel"></div>
             <div class="top-row">
                 <div class="lux-data">
                     <div>Освещённость</div>
@@ -423,7 +443,9 @@
                     <div id="sunArc">
                         <div class="horizon"></div>
                     </div>
-                    <div id="sun"></div>
+                    <div id="sun">
+                        <span id="sunElevation"></span>
+                    </div>
                 </div>
                 <div class="sunset-label" id="sunsetLabel"></div>
             </div>
