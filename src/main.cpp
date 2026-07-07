@@ -51,16 +51,9 @@ int  influxDBPort         = SECRET_INFLUX_PORT;
 char influxDBDatabase[33] = SECRET_INFLUX_DATABASE;
 
 // ─────────────────────────────────────────────────────────────
-//  Пины nRF905 (SPI)
+//  Пины периферии (определяются в board_config.h)
 // ─────────────────────────────────────────────────────────────
-
-#define NRF905_SPI_SCK    14
-#define NRF905_SPI_MISO   12
-#define NRF_SPI_MOSI      13
-#define NRF905_CE         27
-#define NRF905_TX_EN      25
-#define NRF905_CS         15
-#define NRF905_PWR_UP_PIN 26  // Принудительный сброс nRF905
+#include "board_config.h"
 
 // ─────────────────────────────────────────────────────────────
 //  Коды статусов (должны совпадать с передатчиком STM32)
@@ -85,12 +78,7 @@ int    tzOffset      = SECRET_TZ_OFFSET;
 // ─────────────────────────────────────────────────────────────
 
 HardwareSerial nextion(2);
-#define RX2 16
-#define TX2 17
-
 HardwareSerial mh19(1);
-#define RX1 32
-#define TX1 33
 
 // ─────────────────────────────────────────────────────────────
 //  Объекты периферии
@@ -177,6 +165,14 @@ int   month      = -1;
 // Счётчики аварийных сбросов
 volatile uint32_t i2cResetCount   = 0;
 volatile uint32_t nRF905ResetCount = 0;
+
+// Флаг прерывания DR nRF905 (только ESP32-S3)
+#ifdef ESP32S3
+volatile bool nrf905DataReady = false;
+void IRAM_ATTR nrf905DRISR() {
+  nrf905DataReady = true;
+}
+#endif
 
 // Время восхода и заката (минуты с полуночи, вычисляются раз в сутки)
 double sunriseTime = 0.0;
@@ -1018,17 +1014,17 @@ void resetI2CBus() {
   ESP_LOGE("SYS", "Сброс шины I2C (сброс #%u)...", i2cResetCount);
 
   // Генерируем 10 тактовых импульсов на SCL для освобождения застрявшего устройства
-  pinMode(22, OUTPUT);
-  pinMode(21, INPUT_PULLUP);
+  pinMode(I2C_SCL, OUTPUT);
+  pinMode(I2C_SDA, INPUT_PULLUP);
   for (int i = 0; i < 10; i++) {
-    digitalWrite(22, HIGH); delayMicroseconds(5);
-    digitalWrite(22, LOW);  delayMicroseconds(5);
+    digitalWrite(I2C_SCL, HIGH); delayMicroseconds(5);
+    digitalWrite(I2C_SCL, LOW);  delayMicroseconds(5);
   }
-  digitalWrite(22, HIGH);
+  digitalWrite(I2C_SCL, HIGH);
   vTaskDelay(pdMS_TO_TICKS(10));
 
   Wire.end();
-  Wire.begin(21, 22);
+  Wire.begin(I2C_SDA, I2C_SCL);
   checkMutex();
   ESP_LOGW("SYS", "Шина I2C сброшена, мьютекс пересоздан");
 
@@ -1422,6 +1418,12 @@ void taskNRF905(void *pvParameters) {
   uint8_t       recoveryState       = 0;    // 0=норма, 1-2=NRF_REST, 3=REST
 
   while (true) {
+#ifdef ESP32S3
+    // ESP32-S3: ждём прерывание DR (пакет получен) с таймаутом 5 сек
+    nrf905DataReady = false;
+    ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(5000));
+#endif
+
     if (xSemaphoreTake(driverMutex, portMAX_DELAY) == pdTRUE) {
       if (driver.available()) {
         uint8_t buf[RH_NRF905_MAX_MESSAGE_LEN];
@@ -2171,8 +2173,16 @@ void setup() {
     ESP_LOGI("INIT", "nRF905 готов");
   }
 
+#ifdef ESP32S3
+  // nRF905: прерывания DR/AM (только ESP32-S3)
+  pinMode(NRF905_DR, INPUT_PULLUP);
+  pinMode(NRF905_AM, INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(NRF905_DR), nrf905DRISR, RISING);
+  ESP_LOGI("INIT", "nRF905 DR/AM прерывания настроены (GPIO %d/%d)", NRF905_DR, NRF905_AM);
+#endif
+
   // I2C датчики
-  Wire.begin();
+  Wire.begin(I2C_SDA, I2C_SCL);
   if (!bme.begin(0x76)) {
     ESP_LOGE("INIT", "BME280 не найден!");
   } else {
