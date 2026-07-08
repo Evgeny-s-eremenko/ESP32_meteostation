@@ -2038,8 +2038,8 @@ void wifi_monitor_task(void *pvParams) {
 //  Мониторинг кучи: лог каждые 60 сек, рестарт при критическом минимуме
 // ─────────────────────────────────────────────────────────────
 
-#define HEAP_WARN_THRESHOLD   32768   // 32 КБ — предупреждение
-#define HEAP_CRIT_THRESHOLD   16384   // 16 КБ — аварийный рестарт
+#define HEAP_WARN_THRESHOLD   81920   // 32 КБ — предупреждение
+#define HEAP_CRIT_THRESHOLD   65536   // 16 КБ — аварийный рестарт
 
 void heap_monitor_task(void *pvParameters) {
   while (true) {
