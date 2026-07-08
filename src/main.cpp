@@ -128,6 +128,7 @@ TaskHandle_t  taskNRF905TxHandle = NULL;
 
 SemaphoreHandle_t i2cMutex;
 SemaphoreHandle_t driverMutex;
+SemaphoreHandle_t dataMutex;
 portMUX_TYPE      mutexMux  = portMUX_INITIALIZER_UNLOCKED;
 TimerHandle_t     wifiTimer;
 nvs_handle_t      nrf905NvsHandle = 0;
@@ -158,9 +159,9 @@ volatile int AQI  = 1;
 volatile int ECO2 = 400;
 
 // Прогноз погоды
-float forecast   = 0.0f;
-volatile float trend = 0.0f;
-int   month      = -1;
+volatile float forecast = 0.0f;
+volatile float trend    = 0.0f;
+volatile int   month    = -1;
 
 // Счётчики аварийных сбросов
 volatile uint32_t i2cResetCount   = 0;
@@ -438,23 +439,26 @@ bool isAuthenticated(AsyncWebServerRequest *request) {
 void handleGraphData(AsyncWebServerRequest *request) {
   StaticJsonDocument<384> doc;
 
-  doc["temperature"] = temperature;
-  doc["humidity"]    = humidity;
-  doc["dewPoint"]    = dewPoint;
-  doc["pressure"]    = pressure;
-  doc["homeTemp"]    = homeTemp;
-  doc["homeHum"]     = homeHum;
-  doc["homeDP"]      = homeDP;
-  doc["forecast"]    = forecast;
-  doc["trend"]       = trend;
-  doc["CO2"]         = ppm;
-  doc["TVOC"]        = TVOC;
-  doc["LUX"]         = luxLevel;
-  doc["PM2.5"]       = pm25Level;
-  doc["PM10"]        = pm10Level;
-  doc["UV"]          = uvIndex;
-  doc["FAN"]         = fanStatus;
-  doc["HEAT"]        = heaterStatus;
+  if (xSemaphoreTake(dataMutex, pdMS_TO_TICKS(1000)) == pdTRUE) {
+    doc["temperature"] = temperature;
+    doc["humidity"]    = humidity;
+    doc["dewPoint"]    = dewPoint;
+    doc["pressure"]    = pressure;
+    doc["homeTemp"]    = homeTemp;
+    doc["homeHum"]     = homeHum;
+    doc["homeDP"]      = homeDP;
+    doc["forecast"]    = forecast;
+    doc["trend"]       = trend;
+    doc["CO2"]         = ppm;
+    doc["TVOC"]        = TVOC;
+    doc["LUX"]         = luxLevel;
+    doc["PM2.5"]       = pm25Level;
+    doc["PM10"]        = pm10Level;
+    doc["UV"]          = uvIndex;
+    doc["FAN"]         = fanStatus;
+    doc["HEAT"]        = heaterStatus;
+    xSemaphoreGive(dataMutex);
+  }
 
   AsyncResponseStream *response = request->beginResponseStream("application/json");
   serializeJson(doc, *response);
@@ -579,7 +583,7 @@ void getSystemInfo(char *buffer, size_t len) {
 }
 
 void handleSysInfo(AsyncWebServerRequest *request) {
-  static char info[256];
+  char info[256];
   getSystemInfo(info, sizeof(info));
   request->send(200, "text/plain", info);
 }
@@ -930,7 +934,7 @@ void sendTimeData() {
   json["sunElevation"] = calcSunElevation(latitude, longitude, now);
   json["solarNoon"]    = calcSolarNoon(longitude, now);
 
-  static char jsonBuffer[320];
+  char jsonBuffer[320];
   size_t len = serializeJson(json, jsonBuffer, sizeof(jsonBuffer));
   if (len >= sizeof(jsonBuffer) - 1) {
     ESP_LOGE("WS", "JSON-буфер времени переполнен!");
@@ -1069,9 +1073,39 @@ void sendDataToInfluxDB() {
 
   char influxDBLine[512];
 
-  // Копируем volatile-переменные статусов в локальные (атомарно)
-  uint8_t curHeater = heaterStatus;
-  uint8_t curFan    = fanStatus;
+  // Копируем volatile-переменные в локальные копии под мьютексом
+  uint8_t curHeater, curFan;
+  float   locTemperature, locHumidity, locDewPoint;
+  float   locPressure, locHomeTemp, locHomeHum, locHomeDP;
+  float   locForecast, locTrend;
+  int     locPpm, locTVOC, locAQI, locECO2;
+  float   locPm25Level, locPm10Level, locLuxLevel, locUvIndex;
+
+  if (xSemaphoreTake(dataMutex, pdMS_TO_TICKS(1000)) == pdTRUE) {
+    curHeater    = heaterStatus;
+    curFan       = fanStatus;
+    locTemperature = temperature;
+    locHumidity    = humidity;
+    locDewPoint    = dewPoint;
+    locPressure    = pressure;
+    locHomeTemp    = homeTemp;
+    locHomeHum     = homeHum;
+    locHomeDP      = homeDP;
+    locForecast    = forecast;
+    locTrend       = trend;
+    locPpm         = ppm;
+    locTVOC        = TVOC;
+    locAQI         = AQI;
+    locECO2        = ECO2;
+    locPm25Level   = pm25Level;
+    locPm10Level   = pm10Level;
+    locLuxLevel    = luxLevel;
+    locUvIndex     = uvIndex;
+    xSemaphoreGive(dataMutex);
+  } else {
+    ESP_LOGW("INFLUX", "Таймаут dataMutex — пропуск отправки");
+    return;
+  }
 
   // При активном нагреве уличные T/H недостоверны — не отправляем
   bool sendClimate = (curHeater != ST_HEATER && curHeater != ST_COOLING);
@@ -1082,103 +1116,103 @@ void sendDataToInfluxDB() {
 
   // Уличный климат
   if (sendClimate) {
-    if (temperature != 0.0f) {
+    if (locTemperature != 0.0f) {
       offset += snprintf(influxDBLine + offset, sizeof(influxDBLine) - offset,
-                         "%stemperature=%.2f", sep, temperature);
+                         "%stemperature=%.2f", sep, locTemperature);
       sep = ",";
     }
-    if (humidity != 0.0f) {
+    if (locHumidity != 0.0f) {
       offset += snprintf(influxDBLine + offset, sizeof(influxDBLine) - offset,
-                         "%shumidity=%.2f", sep, humidity);
+                         "%shumidity=%.2f", sep, locHumidity);
       sep = ",";
     }
-    if (!isnan(dewPoint) && dewPoint != 0.0f) {
+    if (!isnan(locDewPoint) && locDewPoint != 0.0f) {
       offset += snprintf(influxDBLine + offset, sizeof(influxDBLine) - offset,
-                         "%sdewPoint=%.2f", sep, dewPoint);
+                         "%sdewPoint=%.2f", sep, locDewPoint);
       sep = ",";
     }
   }
 
   // Атмосферное давление
-  if (pressure != 0.0f) {
+  if (locPressure != 0.0f) {
     offset += snprintf(influxDBLine + offset, sizeof(influxDBLine) - offset,
-                       "%spressure=%.2f", sep, pressure);
+                       "%spressure=%.2f", sep, locPressure);
     sep = ",";
   }
 
   // Прогноз и тренд
-  if (forecast >= 0.0f) {
+  if (locForecast >= 0.0f) {
     offset += snprintf(influxDBLine + offset, sizeof(influxDBLine) - offset,
-                       "%sforecast=%.2f", sep, forecast);
+                       "%sforecast=%.2f", sep, locForecast);
     sep = ",";
   }
-  if (trend >= -30.0f && trend <= 30.0f) {
+  if (locTrend >= -30.0f && locTrend <= 30.0f) {
     offset += snprintf(influxDBLine + offset, sizeof(influxDBLine) - offset,
-                       "%strend=%.2f", sep, trend);
+                       "%strend=%.2f", sep, locTrend);
     sep = ",";
   }
 
   // Домашний климат
-  if (homeTemp != 0.0f) {
+  if (locHomeTemp != 0.0f) {
     offset += snprintf(influxDBLine + offset, sizeof(influxDBLine) - offset,
-                       "%shomeTemp=%.2f", sep, homeTemp);
+                       "%shomeTemp=%.2f", sep, locHomeTemp);
     sep = ",";
   }
-  if (homeHum != 0.0f) {
+  if (locHomeHum != 0.0f) {
     offset += snprintf(influxDBLine + offset, sizeof(influxDBLine) - offset,
-                       "%shomeHum=%.2f", sep, homeHum);
+                       "%shomeHum=%.2f", sep, locHomeHum);
     sep = ",";
   }
-  if (!isnan(homeDP) && homeDP != 0.0f) {
+  if (!isnan(locHomeDP) && locHomeDP != 0.0f) {
     offset += snprintf(influxDBLine + offset, sizeof(influxDBLine) - offset,
-                       "%shomeDP=%.2f", sep, homeDP);
+                       "%shomeDP=%.2f", sep, locHomeDP);
     sep = ",";
   }
 
   // Качество воздуха (ENS160 + MH-Z19)
   // Примечание: InfluxDB уже хранит эти поля как float, поэтому %.0f без суффикса 'i'
-  if (ppm != 0) {
+  if (locPpm != 0) {
     offset += snprintf(influxDBLine + offset, sizeof(influxDBLine) - offset,
-                       "%sCO2=%.0f", sep, (float)ppm);
+                       "%sCO2=%.0f", sep, (float)locPpm);
     sep = ",";
   }
-  if (TVOC != -1) {
+  if (locTVOC != -1) {
     offset += snprintf(influxDBLine + offset, sizeof(influxDBLine) - offset,
-                       "%sTVOC=%.0f", sep, (float)TVOC);
+                       "%sTVOC=%.0f", sep, (float)locTVOC);
     sep = ",";
   }
-  if (AQI != -1) {
+  if (locAQI != -1) {
     offset += snprintf(influxDBLine + offset, sizeof(influxDBLine) - offset,
-                       "%sAQI=%.0f", sep, (float)AQI);
+                       "%sAQI=%.0f", sep, (float)locAQI);
     sep = ",";
   }
-  if (ECO2 != -1) {
+  if (locECO2 != -1) {
     offset += snprintf(influxDBLine + offset, sizeof(influxDBLine) - offset,
-                       "%sECO2=%.0f", sep, (float)ECO2);
+                       "%sECO2=%.0f", sep, (float)locECO2);
     sep = ",";
   }
 
   // Пыль (PM)
-  if (pm25Level >= 0.0f) {
+  if (locPm25Level >= 0.0f) {
     offset += snprintf(influxDBLine + offset, sizeof(influxDBLine) - offset,
-                       "%spm25Level=%.2f", sep, pm25Level);
+                       "%spm25Level=%.2f", sep, locPm25Level);
     sep = ",";
   }
-  if (pm10Level >= 0.0f) {
+  if (locPm10Level >= 0.0f) {
     offset += snprintf(influxDBLine + offset, sizeof(influxDBLine) - offset,
-                       "%spm10Level=%.2f", sep, pm10Level);
+                       "%spm10Level=%.2f", sep, locPm10Level);
     sep = ",";
   }
 
   // Свет и УФ
-  if (luxLevel >= 0.0f) {
+  if (locLuxLevel >= 0.0f) {
     offset += snprintf(influxDBLine + offset, sizeof(influxDBLine) - offset,
-                       "%sluxLevel=%.2f", sep, luxLevel);
+                       "%sluxLevel=%.2f", sep, locLuxLevel);
     sep = ",";
   }
-  if (uvIndex >= 0.0f) {
+  if (locUvIndex >= 0.0f) {
     offset += snprintf(influxDBLine + offset, sizeof(influxDBLine) - offset,
-                       "%suvIndex=%.2f", sep, uvIndex);
+                       "%suvIndex=%.2f", sep, locUvIndex);
     sep = ",";
   }
 
@@ -1468,8 +1502,8 @@ void taskNRF905(void *pvParameters) {
 
           // 4. Парсинг данных (начиная с байта 1, после burst_id)
           const uint8_t *p = buf + 1;
-          heaterStatus = *p++;
-          fanStatus    = *p++;
+          uint8_t  rawHeater = *p++;
+          uint8_t  rawFan    = *p++;
 
           int16_t  rawT   = (int16_t)((uint16_t)p[0] | ((uint16_t)p[1] << 8));  p += 2;
           uint16_t rawH   = (uint16_t)p[0] | ((uint16_t)p[1] << 8);              p += 2;
@@ -1479,13 +1513,18 @@ void taskNRF905(void *pvParameters) {
           uint16_t rawPM25 = (uint16_t)p[0] | ((uint16_t)p[1] << 8);            p += 2;
           uint16_t rawPM10 = (uint16_t)p[0] | ((uint16_t)p[1] << 8);
 
-          temperature = rawT    / 100.0f;
-          humidity    = rawH    / 100.0f;
-          uvIndex     = rawUV   / 100.0f;
-          luxLevel    = rawLux  / 100.0f;
-          pm25Level   = rawPM25 / 10.0f;
-          pm10Level   = rawPM10 / 10.0f;
-          dewPoint    = calculateDewPoint(temperature, humidity);
+          if (xSemaphoreTake(dataMutex, pdMS_TO_TICKS(500)) == pdTRUE) {
+            heaterStatus = rawHeater;
+            fanStatus    = rawFan;
+            temperature  = rawT    / 100.0f;
+            humidity     = rawH    / 100.0f;
+            uvIndex      = rawUV   / 100.0f;
+            luxLevel     = rawLux  / 100.0f;
+            pm25Level    = rawPM25 / 10.0f;
+            pm10Level    = rawPM10 / 10.0f;
+            dewPoint     = calculateDewPoint(temperature, humidity);
+            xSemaphoreGive(dataMutex);
+          }
 
           lastReceived = millis();
           if (recoveryState > 0) {
@@ -1564,17 +1603,24 @@ void taskBMP280(void *pvParameters) {
     if (xSemaphoreTake(i2cMutex, pdMS_TO_TICKS(2000)) == pdTRUE) {
       float rawTemp = bme.readTemperature();
       float rawHum  = bme.readHumidity();
-      pressure      = bme.readPressure() / 100.0f;
+      float rawPres = bme.readPressure() / 100.0f;
 
       // Коррекция влажности относительно реальной температуры размещения датчика
-      homeTemp = rawTemp;  // при необходимости вычесть смещение (напр. -2.0f)
       float eRaw  = es(rawTemp);
-      float eCorr = es(homeTemp);
-      homeHum = rawHum * (eRaw / eCorr);
-      if (homeHum > 100.0f) homeHum = 100.0f;
+      float eCorr = es(rawTemp);
+      float rawHomeHum = rawHum * (eRaw / eCorr);
+      if (rawHomeHum > 100.0f) rawHomeHum = 100.0f;
+      float rawHomeDP = calculatehomeDP(rawTemp, rawHomeHum);
 
       xSemaphoreGive(i2cMutex);
-      homeDP = calculatehomeDP(homeTemp, homeHum);
+
+      if (xSemaphoreTake(dataMutex, pdMS_TO_TICKS(500)) == pdTRUE) {
+        pressure = rawPres;
+        homeTemp = rawTemp;
+        homeHum  = rawHomeHum;
+        homeDP   = rawHomeDP;
+        xSemaphoreGive(dataMutex);
+      }
     } else {
       ESP_LOGE("MUTEX", "Таймаут i2cMutex (задача: %s, держатель: %s)",
                pcTaskGetTaskName(NULL),
@@ -1612,22 +1658,39 @@ void taskGetTime(void *pvParameters) {
 // Прогноз погоды по давлению (алгоритм Замбретти, раз в 30 минут)
 void taskForecast(void *pvParameters) {
   for (;;) {
-    int m = month;  // локальная копия, чтобы не конкурировать с taskGetTime
-    if (m != -1) {
-      cond.setMonth(m);
-    }
+    int   m;
+    float p_hpa, t;
 
-    float p_hpa = pressure;
-    if (!isnan(p_hpa) && p_hpa > 0.0f) {
-      cond.addP((long)(p_hpa * 100.0f), temperature);
+    if (xSemaphoreTake(dataMutex, pdMS_TO_TICKS(500)) == pdTRUE) {
+      m     = month;
+      p_hpa = pressure;
+      t     = temperature;
+      xSemaphoreGive(dataMutex);
     } else {
       vTaskDelay(pdMS_TO_TICKS(5000));
       continue;
     }
 
-    forecast = cond.getCast();
-    trend    = cond.getTrend() / 100.0f;
-    ESP_LOGD("FORECAST", "Прогноз: %.1f, тренд: %.2f hPa/3ч", forecast, trend);
+    if (m != -1) {
+      cond.setMonth(m);
+    }
+
+    if (!isnan(p_hpa) && p_hpa > 0.0f) {
+      cond.addP((long)(p_hpa * 100.0f), t);
+    } else {
+      vTaskDelay(pdMS_TO_TICKS(5000));
+      continue;
+    }
+
+    float newForecast = cond.getCast();
+    float newTrend    = cond.getTrend() / 100.0f;
+
+    if (xSemaphoreTake(dataMutex, pdMS_TO_TICKS(500)) == pdTRUE) {
+      forecast = newForecast;
+      trend    = newTrend;
+      xSemaphoreGive(dataMutex);
+    }
+    ESP_LOGD("FORECAST", "Прогноз: %.1f, тренд: %.2f hPa/3ч", newForecast, newTrend);
 
     vTaskDelay(pdMS_TO_TICKS(30UL * 60UL * 1000UL));
   }
@@ -1854,8 +1917,11 @@ void taskCO2Read(void *pvParameters) {
       checksum = 0xFF - checksum + 1;
 
       if (response[8] == checksum) {
-        ppm = (256 * response[2]) + response[3];
-        ESP_LOGV("CO2", "%d ppm", ppm);
+        if (xSemaphoreTake(dataMutex, pdMS_TO_TICKS(500)) == pdTRUE) {
+          ppm = (256 * response[2]) + response[3];
+          xSemaphoreGive(dataMutex);
+        }
+        ESP_LOGV("CO2", "%d ppm", (256 * response[2]) + response[3]);
         errorCount = 0;
       } else {
         errorCount++;
@@ -1890,12 +1956,12 @@ void taskTVOCRead(void *pvParameters) {
     checkMutex();
     if (xSemaphoreTake(i2cMutex, pdMS_TO_TICKS(2000)) == pdTRUE) {
       // ENS160
+      int localAQI = -1, localTVOC = -1, localECO2 = -1;
       if (ens160.begin()) {
         if (ens160.checkDataStatus()) {
-          AQI  = ens160.getAQI();
-          TVOC = ens160.getTVOC();
-          ECO2 = ens160.getECO2();
-          ESP_LOGV("TVOC", "AQI=%d TVOC=%d ppb eCO2=%d ppm", AQI, TVOC, ECO2);
+          localAQI  = ens160.getAQI();
+          localTVOC = ens160.getTVOC();
+          localECO2 = ens160.getECO2();
         }
         ens160Errors = 0;
       } else {
@@ -1914,6 +1980,16 @@ void taskTVOCRead(void *pvParameters) {
       }
 
       xSemaphoreGive(i2cMutex);
+
+      if (localAQI != -1 || localTVOC != -1 || localECO2 != -1) {
+        if (xSemaphoreTake(dataMutex, pdMS_TO_TICKS(500)) == pdTRUE) {
+          if (localAQI != -1)  AQI  = localAQI;
+          if (localTVOC != -1) TVOC = localTVOC;
+          if (localECO2 != -1) ECO2 = localECO2;
+          xSemaphoreGive(dataMutex);
+        }
+        ESP_LOGV("TVOC", "AQI=%d TVOC=%d ppb eCO2=%d ppm", localAQI, localTVOC, localECO2);
+      }
     } else {
       ESP_LOGE("MUTEX", "Таймаут i2cMutex (задача: %s)", pcTaskGetTaskName(NULL));
       resetI2CBus();
@@ -2038,8 +2114,8 @@ void wifi_monitor_task(void *pvParams) {
 //  Мониторинг кучи: лог каждые 60 сек, рестарт при критическом минимуме
 // ─────────────────────────────────────────────────────────────
 
-#define HEAP_WARN_THRESHOLD   81920   // 32 КБ — предупреждение
-#define HEAP_CRIT_THRESHOLD   65536   // 16 КБ — аварийный рестарт
+#define HEAP_WARN_THRESHOLD   81920   // 80 КБ — предупреждение
+#define HEAP_CRIT_THRESHOLD   65536   // 64 КБ — аварийный рестарт
 
 void heap_monitor_task(void *pvParameters) {
   while (true) {
@@ -2057,6 +2133,10 @@ void heap_monitor_task(void *pvParameters) {
     if (freeHeap < HEAP_WARN_THRESHOLD) {
       ESP_LOGW("HEAP", "Мало свободной памяти (%u байт)", freeHeap);
     }
+
+    // Очистка мёртвых WebSocket-клиентов
+    webSocket.cleanupClients();
+    webSocket1.cleanupClients();
 
     vTaskDelay(pdMS_TO_TICKS(60000));
   }
@@ -2216,6 +2296,8 @@ void setup() {
   if (!i2cMutex)    ESP_LOGE("INIT", "Ошибка создания i2cMutex!");
   driverMutex = xSemaphoreCreateMutex();
   if (!driverMutex) ESP_LOGE("INIT", "Ошибка создания driverMutex!");
+  dataMutex = xSemaphoreCreateMutex();
+  if (!dataMutex) ESP_LOGE("INIT", "Ошибка создания dataMutex!");
   nrf905CmdQueue = xQueueCreate(NRF905_CMD_QUEUE_LEN, NRF905_CMD_LEN);
   if (!nrf905CmdQueue) ESP_LOGE("INIT", "Ошибка создания очереди nRF905 TX!");
 
