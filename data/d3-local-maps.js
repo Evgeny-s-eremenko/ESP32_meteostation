@@ -38,6 +38,7 @@ const RdYlGn = [
 function makeInterpolator(palette) {
   return function(t) {
     const n = palette.length - 1;
+    t = Math.max(0, Math.min(1, t));
     const scaledT = t * n;
     const i = Math.floor(scaledT);
     const localT = scaledT - i;

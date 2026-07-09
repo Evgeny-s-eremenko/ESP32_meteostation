@@ -493,6 +493,7 @@
     function makeInterpolator(palette) {
         return function(t) {
             const n = palette.length - 1;
+            t = Math.max(0, Math.min(1, t));
             const s = t * n, i = Math.floor(s), lt = s - i;
             if (i >= n) return `rgb(${palette[n][0]},${palette[n][1]},${palette[n][2]})`;
             return interpolateColor(palette[i], palette[i+1], lt);
@@ -509,17 +510,17 @@
     // ── Обновление полос ──
     function updateIndicator(v, mn, mx, id) {
         const b = document.getElementById(id); if (!b) return;
-        b.style.width = ((v - mn) / (mx - mn) * 100) + "%";
+        b.style.width = Math.min(100, (v - mn) / (mx - mn) * 100) + "%";
         b.style.backgroundColor = getColor(v, mn, mx);
     }
     function updateIndicatorAirQuality(v, mn, mx, id) {
         const b = document.getElementById(id); if (!b) return;
-        b.style.width = ((v - mn) / (mx - mn) * 100) + "%";
+        b.style.width = Math.min(100, (v - mn) / (mx - mn) * 100) + "%";
         b.style.backgroundColor = getColorAirQuality(v, mn, mx);
     }
     function updateIndicatorHumidity(v, mn, mx, id) {
         const b = document.getElementById(id); if (!b) return;
-        b.style.width = ((v - mn) / (mx - mn) * 100) + "%";
+        b.style.width = Math.min(100, (v - mn) / (mx - mn) * 100) + "%";
         b.style.backgroundColor = getColorHumidity(v, mn, mx);
     }
 

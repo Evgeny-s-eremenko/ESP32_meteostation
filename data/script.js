@@ -45,21 +45,21 @@ function getColorHumidity(value, min, max) {
 function updateIndicator(value, min, max, elementId) {
     const bar = document.getElementById(elementId);
     if (!bar) { console.warn("Элемент не найден:", elementId); return; }
-    bar.style.width           = ((value - min) / (max - min) * 100) + "%";
+    bar.style.width           = Math.min(100, (value - min) / (max - min) * 100) + "%";
     bar.style.backgroundColor = getColor(value, min, max);
 }
 
 function updateIndicatorAirQuality(value, min, max, elementId) {
     const bar = document.getElementById(elementId);
     if (!bar) { console.warn("Элемент не найден:", elementId); return; }
-    bar.style.width           = ((value - min) / (max - min) * 100) + "%";
+    bar.style.width           = Math.min(100, (value - min) / (max - min) * 100) + "%";
     bar.style.backgroundColor = getColorAirQuality(value, min, max);
 }
 
 function updateIndicatorHumidity(value, min, max, elementId) {
     const bar = document.getElementById(elementId);
     if (!bar) { console.warn("Элемент не найден:", elementId); return; }
-    bar.style.width           = ((value - min) / (max - min) * 100) + "%";
+    bar.style.width           = Math.min(100, (value - min) / (max - min) * 100) + "%";
     bar.style.backgroundColor = getColorHumidity(value, min, max);
 }
 
