@@ -465,12 +465,21 @@ void handleGraphData(AsyncWebServerRequest *request) {
   request->send(response);
 }
 
+bool isMobile(AsyncWebServerRequest *request) {
+    String ua = request->header("User-Agent");
+    ua.toLowerCase();
+    return ua.indexOf("mobile") != -1 || ua.indexOf("android") != -1
+        || ua.indexOf("iphone") != -1;
+}
+
 void handleRoot(AsyncWebServerRequest *request) {
-  if (LittleFS.exists("/index.html")) {
-    request->send(LittleFS, "/index.html", "text/html");
-  } else {
-    request->send(404, "text/plain", "index.html not found");
-  }
+    if (isMobile(request) && LittleFS.exists("/mobile.html")) {
+        request->send(LittleFS, "/mobile.html", "text/html");
+    } else if (LittleFS.exists("/index.html")) {
+        request->send(LittleFS, "/index.html", "text/html");
+    } else {
+        request->send(404, "text/plain", "index.html not found");
+    }
 }
 
 void handleAdmin(AsyncWebServerRequest *request) {

@@ -2,9 +2,11 @@
 <html>
 <meta charset='UTF-8'>
 <head>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ESP32 update</title>
     <style>
         body {
+            --gap: 16px;
             font-family: sans-serif;
             color: #c7c7c7;
             background-color: #414f8a;
@@ -12,21 +14,23 @@
             flex-direction: column;
             align-items: center;
             margin: 0;
-            padding: 20px;
+            padding: var(--gap);
         }
 
         .container {
             display: grid;
             grid-auto-flow: row;
             grid-template-columns: repeat(1, 2fr);
-            grid-gap: 20px;
+            grid-gap: var(--gap);
+            width: 100%;
             max-width: 800px;
             margin-bottom: 20px;
             justify-items: center;
         }
         .widget {
-            width: 220px;
-            height: 124px;
+            width: 100%;
+            box-sizing: border-box;
+            height: auto;
             font-size: 12px;
             background-color: #242749;
             color: #c7c7c7;

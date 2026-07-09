@@ -1,0 +1,683 @@
+<!DOCTYPE html>
+<html lang="ru">
+<meta charset="UTF-8">
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ESP32 Dashboard</title>
+    <style>
+        * { box-sizing: border-box; }
+
+        body {
+            --gap: 12px;
+            font-family: sans-serif;
+            color: #c7c7c7;
+            background-color: #414f8a;
+            margin: 0;
+            padding: var(--gap);
+        }
+
+        h1 {
+            text-align: center;
+            font-size: 20px;
+            margin: 6px 0 10px;
+        }
+
+        /* ── Сетка ──────────────────────────────────────────── */
+        .pair-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: var(--gap);
+            margin-bottom: var(--gap);
+        }
+
+        .full-row {
+            margin-bottom: var(--gap);
+        }
+
+        /* ── Виджет ─────────────────────────────────────────── */
+        .widget {
+            background-color: #242749;
+            color: #c7c7c7;
+            border-radius: 10px;
+            padding: 14px;
+            box-shadow: 0 2px 3px 1px rgba(0, 0, 0, 0.185);
+            text-align: center;
+            position: relative;
+            overflow: hidden;
+            transition: background-color 0.3s ease;
+        }
+
+        .widget:hover { background-color: #575eac; }
+
+        .widget::before {
+            content: "";
+            position: absolute;
+            left: 0; top: 0;
+            width: 4px; height: 100%;
+            background: var(--left-border-color, transparent);
+            mask: linear-gradient(to bottom, transparent 0px, black 8px, black calc(100% - 8px), transparent 100%);
+        }
+
+        .widget h2 { margin: 0 0 4px; font-size: 13px; }
+
+        .value {
+            font-size: 17px;
+            font-weight: bold;
+            margin: 4px 0;
+        }
+
+        .label {
+            color: #979797e5;
+            font-size: 11px;
+            margin-bottom: 6px;
+        }
+
+        /* ── Иконки ─────────────────────────────────────────── */
+        .widget img {
+            position: absolute;
+            left: 10px; top: 38%;
+            transform: translateY(-50%);
+            opacity: 0.6;
+        }
+        .temperature-icon { width: 10px; height: 23px; }
+        .humidity-icon { width: 16px; height: 23px; }
+        .dew-point-icon { width: 23px; height: 23px; }
+
+        /* ── Иконки для широких виджетов ─────────────────────── */
+        #weatherIcon {
+            position: absolute;
+            left: 8px; top: 35%;
+            transform: translateY(-50%);
+            width: 36px; height: 36px;
+        }
+
+        #trendIcon {
+            position: absolute;
+            left: auto;
+            right: 8px; top: 35%;
+            transform: translateY(-50%);
+            width: 36px; height: 36px;
+        }
+
+        #CO2Icon {
+            position: absolute;
+            left: 8px; top: 40%;
+            transform: translateY(-55%);
+            width: 32px; height: 36px;
+        }
+
+        #TVOCIcon {
+            position: absolute;
+            left: 8px; top: 40%;
+            transform: translateY(-55%);
+            width: 24px; height: 36px;
+        }
+
+        #PMIcon {
+            position: absolute;
+            left: 8px; top: 30%;
+            transform: translateY(-55%);
+            width: 36px; height: 36px;
+        }
+
+        /* ── Индикаторная полоса ────────────────────────────── */
+        .progress-bar {
+            width: 100%;
+            height: 14px;
+            background-color: #979797e5;
+            border-radius: 5px;
+            overflow: hidden;
+            box-shadow: inset 2px 3px 1px 0px rgba(0, 0, 0, 0.185);
+            margin-top: 6px;
+        }
+
+        .progress-bar-fill {
+            height: 100%;
+            border-radius: 5px;
+            transition: width 0.3s ease, background-color 0.3s ease;
+        }
+
+        /* ── Sunset widget ─────────────────────────────────── */
+        .sunset-widget {
+            background-color: #242749;
+            color: #c7c7c7;
+            border-radius: 10px;
+            padding: 14px;
+            box-shadow: 0 2px 3px 1px rgba(0, 0, 0, 0.185);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .sunset-widget:hover { background-color: #575eac; }
+
+        .sunset-top-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            width: 100%;
+            margin-bottom: 6px;
+        }
+
+        .solar-noon-label {
+            text-align: center;
+            font-size: 12px;
+            color: #ffd700;
+            flex: 1;
+        }
+
+        .sun-arc-row {
+            display: flex;
+            align-items: flex-end;
+            justify-content: space-between;
+            width: 100%;
+            margin-bottom: 4px;
+        }
+
+        .lux-data, .uv-data {
+            font-size: 10px;
+            text-align: center;
+            min-width: 50px;
+        }
+
+        .sunArc-container {
+            position: relative;
+            width: 180px;
+            height: 90px;
+            flex-shrink: 0;
+        }
+
+        #sunArcWrapper {
+            position: absolute;
+            left: 50%; top: 0;
+            transform: translateX(-50%);
+            width: 180px; height: 90px;
+            overflow: visible;
+        }
+
+        #sunArc {
+            position: absolute;
+            top: 0; left: 0;
+            width: 180px; height: 90px;
+            border-top-left-radius: 90px;
+            border-top-right-radius: 90px;
+            border: 2px solid #fff;
+            background-color: #428bc9;
+            box-sizing: border-box;
+            overflow: hidden;
+        }
+
+        .horizon {
+            position: absolute;
+            bottom: 0; left: 0;
+            width: 100%; height: 15%;
+            background: #554a22;
+        }
+
+        #sun {
+            position: absolute;
+            width: 22px; height: 22px;
+            border-radius: 50%;
+            background: gold;
+            transform: translate(-50%, -50%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        #sunElevation {
+            font-size: 7px;
+            font-weight: bold;
+            color: #333;
+            text-align: center;
+            line-height: 1;
+        }
+
+        .sunrise-label, .sunset-label {
+            font-size: 10px;
+            text-align: center;
+            min-width: 50px;
+            align-self: flex-end;
+            padding-bottom: 3px;
+            white-space: pre-line;
+        }
+
+        .bottom-row {
+            text-align: center;
+            font-size: 11px;
+            margin-top: 2px;
+        }
+
+        /* ── График ─────────────────────────────────────────── */
+        #toggleGraphButton {
+            width: 100%;
+            height: 32px;
+            border-radius: 10px;
+            background-color: #242749;
+            cursor: pointer;
+            border: none;
+            padding: 8px;
+            transition: background-color 0.3s ease;
+            color: #c7c7c7;
+            font-size: 13px;
+            margin-bottom: var(--gap);
+        }
+
+        #toggleGraphButton:hover { background-color: #575eac; }
+
+        #chartContainer {
+            margin-bottom: var(--gap);
+        }
+
+        iframe {
+            width: 100%;
+            background-color: #242749;
+            border-radius: 10px;
+            box-shadow: 0 2px 3px 1px rgba(0, 0, 0, 0.185);
+        }
+
+        /* ── Навигация ─────────────────────────────────────── */
+        .nav-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: var(--gap);
+        }
+
+        .nav-button {
+            width: 100%;
+            height: 40px;
+            border-radius: 10px;
+            border: none;
+            background-color: #242749;
+            color: #c7c7c7;
+            font-size: 13px;
+            cursor: pointer;
+            transition: background-color 0.3s ease;
+        }
+
+        .nav-button:hover { background-color: #575eac; }
+    </style>
+</head>
+
+<body>
+    <h1>Погодная станция</h1>
+
+    <!-- Заголовки колонок -->
+    <div class="pair-row" style="margin-bottom:4px;">
+        <div style="text-align:center; font-size:14px;">Улица</div>
+        <div style="text-align:center; font-size:14px;">Дом</div>
+    </div>
+
+    <!-- Температура -->
+    <div class="pair-row">
+        <div class="widget" id="outdoorTempWidget">
+            <img class="temperature-icon" src="/temperature.png" alt="">
+            <h2>Температура</h2>
+            <div class="value" id="temperature"></div>
+            <div class="label">Текущая температура</div>
+            <div class="progress-bar">
+                <div class="progress-bar-fill" id="temperatureBar"></div>
+            </div>
+        </div>
+        <div class="widget">
+            <img class="temperature-icon" src="/temperature.png" alt="">
+            <h2>Температура</h2>
+            <div class="value" id="homeTemp"></div>
+            <div class="label">Текущая температура</div>
+            <div class="progress-bar">
+                <div class="progress-bar-fill" id="homeTempBar"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Влажность -->
+    <div class="pair-row">
+        <div class="widget" id="outdoorHumWidget">
+            <img class="humidity-icon" src="/humidity.png" alt="">
+            <h2>Влажность</h2>
+            <div class="value" id="humidity"></div>
+            <div class="label">Относительная влажность</div>
+            <div class="progress-bar">
+                <div class="progress-bar-fill" id="humidityBar"></div>
+            </div>
+        </div>
+        <div class="widget">
+            <img class="humidity-icon" src="/humidity.png" alt="">
+            <h2>Влажность</h2>
+            <div class="value" id="homeHum"></div>
+            <div class="label">Относительная влажность</div>
+            <div class="progress-bar">
+                <div class="progress-bar-fill" id="homeHumBar"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Точка росы -->
+    <div class="pair-row">
+        <div class="widget">
+            <img class="dew-point-icon" src="/dew_point.png" alt="">
+            <h2>Точка росы</h2>
+            <div class="value" id="dewPoint"></div>
+            <div class="label">Температура точки росы</div>
+            <div class="progress-bar">
+                <div class="progress-bar-fill" id="dewPointBar"></div>
+            </div>
+        </div>
+        <div class="widget">
+            <img class="dew-point-icon" src="/dew_point.png" alt="">
+            <h2>Точка росы</h2>
+            <div class="value" id="homeDP"></div>
+            <div class="label">Температура точки росы</div>
+            <div class="progress-bar">
+                <div class="progress-bar-fill" id="homeDPBar"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Давление + прогноз -->
+    <div class="full-row">
+        <div class="widget" style="padding: 14px 50px;">
+            <img id="weatherIcon" src="/transparent.png" alt="Прогноз">
+            <img id="trendIcon"   src="/transparent.png" alt="Тренд">
+            <h2>Давление</h2>
+            <div class="value" id="pressure"></div>
+            <div class="label">Атмосферное давление</div>
+            <div class="progress-bar">
+                <div class="progress-bar-fill" id="pressureBar"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Восход/Закат + освещённость + УФ -->
+    <div class="full-row">
+        <div class="sunset-widget">
+            <div class="sunset-top-row">
+                <div class="lux-data">
+                    <div>Освещённость</div>
+                    <div id="LUX"></div>
+                </div>
+                <div class="solar-noon-label" id="solarNoonLabel"></div>
+                <div class="uv-data">
+                    <div>УФ-индекс</div>
+                    <div id="UV"></div>
+                </div>
+            </div>
+            <div class="sun-arc-row">
+                <div class="sunrise-label" id="sunriseLabel"></div>
+                <div class="sunArc-container">
+                    <div id="sunArcWrapper">
+                        <div id="sunArc">
+                            <div class="horizon"></div>
+                        </div>
+                        <div id="sun">
+                            <span id="sunElevation"></span>
+                        </div>
+                    </div>
+                </div>
+                <div class="sunset-label" id="sunsetLabel"></div>
+            </div>
+            <div class="bottom-row">
+                <div id="currentDateTime"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- CO2 -->
+    <div class="full-row">
+        <div class="widget" style="padding: 14px 50px;">
+            <img id="CO2Icon" src="/CO2_green.png" alt="CO2">
+            <h2>CO2</h2>
+            <div class="value" id="CO2"></div>
+            <div class="label">Концентрация CO2</div>
+            <div class="progress-bar">
+                <div class="progress-bar-fill" id="CO2Bar"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- TVOC -->
+    <div class="full-row">
+        <div class="widget" style="padding: 14px 50px;">
+            <img id="TVOCIcon" src="/TVOC.png" alt="TVOC">
+            <h2>TVOC</h2>
+            <div class="value" id="TVOC"></div>
+            <div class="label">Концентрация TVOC</div>
+            <div class="progress-bar">
+                <div class="progress-bar-fill" id="TVOCBar"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- PM2.5 / PM10 -->
+    <div class="full-row">
+        <div class="widget" style="padding: 14px 50px;">
+            <img id="PMIcon" src="/pm.png" alt="PM">
+            <h2>PM2.5 / PM10</h2>
+            <div class="value" id="PM25"></div>
+            <div class="progress-bar">
+                <div class="progress-bar-fill" id="PM25Bar"></div>
+            </div>
+            <div class="value" id="PM10"></div>
+            <div class="progress-bar">
+                <div class="progress-bar-fill" id="PM10Bar"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- График Grafana -->
+    <button id="toggleGraphButton">Показать / скрыть график</button>
+    <div id="chartContainer" style="display: none;">
+        <iframe id="temperatureChart" height="900" frameborder="0"></iframe>
+    </div>
+
+    <!-- Навигация -->
+    <div class="nav-row">
+        <form action="/admin" method="POST">
+            <button type="submit" class="nav-button">Настройки</button>
+        </form>
+        <form action="/about" method="POST">
+            <button type="submit" class="nav-button">About</button>
+        </form>
+    </div>
+
+    <!-- ── Цветовые шкалы (из d3-local-maps.js) ───────────── -->
+    <script>
+    function linearInterpolate(a, b, t) { return a + (b - a) * t; }
+    function interpolateColor(rgb1, rgb2, t) {
+        return `rgb(${Math.round(linearInterpolate(rgb1[0], rgb2[0], t))},` +
+               `${Math.round(linearInterpolate(rgb1[1], rgb2[1], t))},` +
+               `${Math.round(linearInterpolate(rgb1[2], rgb2[2], t))})`;
+    }
+    const RdYlBu = [[165,0,38],[215,48,39],[244,109,67],[253,174,97],[254,224,144],[224,243,248],[171,217,233],[116,173,209],[69,117,180],[49,54,149]];
+    const RdYlGn = [[165,0,38],[215,48,39],[244,109,67],[253,174,97],[254,224,139],[217,239,139],[166,217,106],[102,189,99],[26,152,80],[0,104,55]];
+    function makeInterpolator(palette) {
+        return function(t) {
+            const n = palette.length - 1;
+            const s = t * n, i = Math.floor(s), lt = s - i;
+            if (i >= n) return `rgb(${palette[n][0]},${palette[n][1]},${palette[n][2]})`;
+            return interpolateColor(palette[i], palette[i+1], lt);
+        };
+    }
+    const localInterpolateRdYlBu = makeInterpolator(RdYlBu);
+    const localInterpolateRdYlGn = makeInterpolator(RdYlGn);
+
+    // ── Цветовые функции ──
+    function getColor(v, mn, mx) { return localInterpolateRdYlBu(1 - (v - mn) / (mx - mn)); }
+    function getColorAirQuality(v, mn, mx) { return localInterpolateRdYlGn(1 - (v - mn) / (mx - mn)); }
+    function getColorHumidity(v, mn, mx) { let t = 0.3 + ((v - mn) / (mx - mn)) * 0.3; return localInterpolateRdYlBu(t); }
+
+    // ── Обновление полос ──
+    function updateIndicator(v, mn, mx, id) {
+        const b = document.getElementById(id); if (!b) return;
+        b.style.width = ((v - mn) / (mx - mn) * 100) + "%";
+        b.style.backgroundColor = getColor(v, mn, mx);
+    }
+    function updateIndicatorAirQuality(v, mn, mx, id) {
+        const b = document.getElementById(id); if (!b) return;
+        b.style.width = ((v - mn) / (mx - mn) * 100) + "%";
+        b.style.backgroundColor = getColorAirQuality(v, mn, mx);
+    }
+    function updateIndicatorHumidity(v, mn, mx, id) {
+        const b = document.getElementById(id); if (!b) return;
+        b.style.width = ((v - mn) / (mx - mn) * 100) + "%";
+        b.style.backgroundColor = getColorHumidity(v, mn, mx);
+    }
+
+    // ── Иконки прогноза и тренда ──
+    function updateWeatherIcon(f) {
+        const i = document.getElementById("weatherIcon"); if (!i) return;
+        if (f <= 2) i.src = "/sunny.png";
+        else if (f <= 4.5) i.src = "/partly_cloudy.png";
+        else if (f <= 7) i.src = "/cloudy.png";
+        else i.src = "/stormy.png";
+    }
+    function updateTrendIcon(t) {
+        const i = document.getElementById("trendIcon"); if (!i) return;
+        if (t < -2.8) i.src = "/3arrowdown.png";
+        else if (t < -1.8) i.src = "/2arrowdown.png";
+        else if (t < -0.7) i.src = "/arrowdown.png";
+        else if (t <= 0.7) i.src = "/neutral.png";
+        else if (t <= 1.8) i.src = "/arrowup.png";
+        else if (t <= 2.8) i.src = "/2arrowup.png";
+        else i.src = "/3arrowup.png";
+    }
+
+    // ── Обновление виджетов ──
+    function updateTable(d) {
+        document.getElementById("temperature").textContent = d.temperature.toFixed(2) + " °C";
+        document.getElementById("humidity").textContent = d.humidity.toFixed(2) + " %";
+        document.getElementById("dewPoint").textContent = d.dewPoint.toFixed(2) + " °C";
+        document.getElementById("homeTemp").textContent = d.homeTemp.toFixed(2) + " °C";
+        document.getElementById("homeHum").textContent = d.homeHum.toFixed(2) + " %";
+        document.getElementById("homeDP").textContent = d.homeDP.toFixed(2) + " °C";
+        document.getElementById("pressure").textContent = d.pressure.toFixed(2) + " hPa";
+        document.getElementById("CO2").textContent = d.CO2.toFixed(0) + " ppm";
+        document.getElementById("TVOC").textContent = d.TVOC.toFixed(0) + " ppb";
+        document.getElementById("PM25").textContent = d["PM2.5"].toFixed(1) + " µg/m³";
+        document.getElementById("PM10").textContent = d["PM10"].toFixed(1) + " µg/m³";
+        document.getElementById("LUX").textContent = d.LUX.toFixed(1) + " lux";
+        document.getElementById("UV").textContent = d.UV.toFixed(2);
+
+        const oTW = document.getElementById("outdoorTempWidget");
+        if (oTW) oTW.style.setProperty("--left-border-color", d.FAN === 1 ? "#00cc00" : "transparent");
+        const oHW = document.getElementById("outdoorHumWidget");
+        if (oHW) {
+            let bc = "transparent";
+            if (d.HEAT === 2) bc = "#ff0000";
+            else if (d.HEAT === 3) bc = "#1194ff";
+            oHW.style.setProperty("--left-border-color", bc);
+        }
+
+        updateIndicator(d.temperature, -35, 35, "temperatureBar");
+        updateIndicator(d.homeTemp, 10, 35, "homeTempBar");
+        updateIndicatorHumidity(d.humidity, 0, 100, "humidityBar");
+        updateIndicatorHumidity(d.homeHum, 0, 100, "homeHumBar");
+        updateIndicator(d.dewPoint, -35, 30, "dewPointBar");
+        updateIndicator(d.homeDP, -20, 30, "homeDPBar");
+        updateIndicator(d.pressure, 956, 1056, "pressureBar");
+        updateIndicatorAirQuality(d.CO2, 400, 2000, "CO2Bar");
+        updateIndicatorAirQuality(d.TVOC, 0, 2000, "TVOCBar");
+        updateIndicatorAirQuality(d["PM2.5"], 0, 20, "PM25Bar");
+        updateIndicatorAirQuality(d["PM10"], 0, 20, "PM10Bar");
+        updateWeatherIcon(d.forecast);
+        updateTrendIcon(d.trend);
+    }
+
+    function fetchDataAndUpdate() {
+        fetch("/graph-data", { cache: "no-store" })
+            .then(r => r.json())
+            .then(data => updateTable(data))
+            .catch(err => console.error("Ошибка загрузки данных:", err));
+    }
+
+    // ── Sunset / Sunrise ──
+    const socket = new WebSocket("ws://" + location.hostname + "/ws1");
+    let nowTime = 0, sunriseTime = 0, sunsetTime = 0, sunElevation = 0, solarNoon = 0, dataInitialized = false;
+
+    socket.onmessage = function(e) {
+        try {
+            const d = JSON.parse(e.data);
+            if ("nowTime" in d) nowTime = d.nowTime;
+            if ("sunriseTime" in d) sunriseTime = d.sunriseTime;
+            if ("sunsetTime" in d) sunsetTime = d.sunsetTime;
+            if ("sunElevation" in d) sunElevation = d.sunElevation;
+            if ("solarNoon" in d) solarNoon = d.solarNoon;
+            dataInitialized = true;
+            updateSunLabels();
+            updateSunPosition();
+        } catch (err) { console.error("Ошибка парсинга JSON:", err); }
+    };
+
+    function formatTime(s) {
+        const h = Math.floor(s / 3600).toString().padStart(2, '0');
+        const m = Math.floor((s % 3600) / 60).toString().padStart(2, '0');
+        return h + ":" + m;
+    }
+    function formatDateTime(u) {
+        const d = new Date(u * 1000);
+        return d.getFullYear() + "-" + (d.getMonth()+1).toString().padStart(2,'0') + "-" + d.getDate().toString().padStart(2,'0') + " " + d.getHours().toString().padStart(2,'0') + ":" + d.getMinutes().toString().padStart(2,'0');
+    }
+    function updateSunLabels() {
+        document.getElementById('sunriseLabel').textContent = "Восход:\n" + formatTime(sunriseTime);
+        document.getElementById('sunsetLabel').textContent = "Закат:\n" + formatTime(sunsetTime);
+        document.getElementById('solarNoonLabel').textContent = "Полдень: " + formatTime(solarNoon);
+    }
+    function updateCurrentDateTime() {
+        document.getElementById('currentDateTime').textContent = formatDateTime(nowTime);
+    }
+    function updateSunPosition() {
+        if (!dataInitialized) return;
+        const w = document.getElementById('sunArcWrapper');
+        const s = document.getElementById('sun');
+        const e = document.getElementById('sunElevation');
+        const width = w.clientWidth, height = w.clientHeight;
+        const r = width / 2, cx = r, cy = height;
+        const d = new Date(nowTime * 1000);
+        const sec = d.getHours() * 3600 + d.getMinutes() * 60 + d.getSeconds();
+        if (sec < sunriseTime || sec > sunsetTime) {
+            s.style.left = (width / 2) + 'px';
+            s.style.top = height + 'px';
+            e.textContent = '';
+        } else {
+            const p = (sec - sunriseTime) / (sunsetTime - sunriseTime);
+            const x = width * p, dx = x - cx;
+            const dy = Math.sqrt(r * r - dx * dx);
+            s.style.left = x + 'px';
+            s.style.top = (cy - dy) + 'px';
+            e.textContent = Math.round(sunElevation) + '°';
+        }
+        nowTime++;
+        updateCurrentDateTime();
+    }
+
+    // ── Init ──
+    window.addEventListener('load', () => {
+        // Grafana iframe
+        const iframe = document.getElementById("temperatureChart");
+        const host = window.location.hostname;
+        iframe.src = host.startsWith("192.168.1.")
+            ? "http://192.168.1.214:3000/public-dashboards/8540a49c692f4ba7841a2228b102d203"
+            : "http://62.33.134.164:3000/public-dashboards/8540a49c692f4ba7841a2228b102d203";
+
+        // Toggle graph
+        document.getElementById("toggleGraphButton").addEventListener("click", () => {
+            const c = document.getElementById("chartContainer");
+            c.style.display = (c.style.display === "none") ? "block" : "none";
+        });
+
+        // Data polling
+        fetchDataAndUpdate();
+        setInterval(fetchDataAndUpdate, 5000);
+
+        // WebSocket
+        socket.onopen = () => {
+            if (socket.readyState === WebSocket.OPEN) socket.send("getTime");
+        };
+        setInterval(() => {
+            if (socket.readyState === WebSocket.OPEN) socket.send("getTime");
+            updateSunPosition();
+        }, 5000);
+    });
+    </script>
+</body>
+</html>

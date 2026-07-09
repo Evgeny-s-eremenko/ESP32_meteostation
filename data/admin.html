@@ -2,9 +2,11 @@
 <html lang="ru">
 <meta charset="UTF-8">
 <head>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ESP32 Admin</title>
     <style>
         body {
+            --gap: 16px;
             font-family: sans-serif;
             color: #c7c7c7;
             background-color: #414f8a;
@@ -12,7 +14,7 @@
             flex-direction: column;
             align-items: center;
             margin: 0;
-            padding: 20px;
+            padding: var(--gap);
         }
 
         /* ── Форма настройки nRF905 ─────────────────────────── */
@@ -21,6 +23,8 @@
             padding: 20px;
             border-radius: 8px;
             box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+            width: 100%;
+            box-sizing: border-box;
             max-width: 400px;
             margin: auto;
         }
@@ -38,15 +42,18 @@
         .container {
             display: grid;
             grid-auto-flow: column;
-            grid-gap: 20px;
+            grid-gap: var(--gap);
+            width: 100%;
             max-width: 800px;
             margin-bottom: 20px;
             justify-items: center;
         }
 
         .widget {
-            width: 220px;
-            height: 124px;
+            width: 100%;
+            box-sizing: border-box;
+            min-height: 124px;
+            height: auto;
             font-size: 12px;
             background-color: #242749;
             color: #c7c7c7;
@@ -69,14 +76,16 @@
         .switches-container {
             display: grid;
             grid-template-columns: repeat(4, 1fr);
-            grid-gap: 20px;
+            grid-gap: var(--gap);
+            width: 100%;
             max-width: 800px;
         }
 
         .toggle-button {
-            width: 150px;
+            width: 100%;
+            box-sizing: border-box;
             height: 50px;
-            margin: 5px;
+            margin: 5px 0;
             border: none;
             border-radius: 10px;
             cursor: pointer;
@@ -94,6 +103,8 @@
             flex-wrap: wrap;
             gap: 12px;
             justify-content: center;
+            width: 100%;
+            box-sizing: border-box;
             max-width: 800px;
             margin-top: 20px;
             padding: 20px;
@@ -120,10 +131,16 @@
             padding: 0;
             font-size: 12px;
             height: 50px;
-            width: 110px;
+            width: 100%;
+            box-sizing: border-box;
             cursor: pointer;
             border-radius: 6px;
             transition: background-color 0.3s ease;
+        }
+
+        .buttons-block form {
+            flex: 1 1 0;
+            min-width: 0;
         }
 
         .action-button:hover { background-color: #575eac; }
@@ -153,6 +170,8 @@
             padding: 20px;
             border-radius: 8px;
             box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+            width: 100%;
+            box-sizing: border-box;
             max-width: 400px;
         }
 
@@ -187,6 +206,15 @@
         }
 
         .settings-btn:hover { background: #575eac; }
+
+        @media (max-width: 600px) {
+            .container {
+                grid-auto-flow: row;
+                grid-template-columns: 1fr;
+            }
+            .switches-container { grid-template-columns: repeat(2, 1fr); }
+            h1 { font-size: 20px; }
+        }
     </style>
 </head>
 <body>
@@ -288,7 +316,7 @@
 
     <!-- Системные настройки -->
     <h2>Системные настройки</h2>
-    <div style="display:flex; gap:20px; max-width:840px; margin:auto; justify-content:center; flex-wrap:wrap;">
+    <div style="display:flex; gap:20px; width:100%; max-width:840px; margin:auto; justify-content:center; flex-wrap:wrap;">
         <form class="settings-form" id="servicesForm">
             <h3>Сеть и сервисы</h3>
             <label for="influx_host">InfluxDB Host:</label>
