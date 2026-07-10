@@ -209,7 +209,7 @@ function resetNVS() {
 // ── Системные настройки: загрузка и сохранение ────────────────
 
 function loadSettings() {
-    fetch("/getSettings")
+    fetch("/getSettings?t=" + Date.now())
         .then(r => r.json())
         .then(data => {
             document.getElementById("wifi_ssid").value   = data.wifi_ssid   || "";
@@ -232,6 +232,8 @@ function loadSettings() {
             document.getElementById("longitude").value    = data.longitude    || 0;
             document.getElementById("tz_offset").value    = data.tz_offset    || 0;
             document.getElementById("tz_sec").value       = data.tz_sec       || 0;
+            document.getElementById("tCorr").value        = data.tCorr        || 0;
+            document.getElementById("altitude_m").value   = data.altitude_m   || 61;
         })
         .catch(err => console.error("Ошибка загрузки настроек:", err));
 }
@@ -255,6 +257,8 @@ function sendSettings() {
     params.set("longitude",   document.getElementById("longitude").value);
     params.set("tz_offset",   document.getElementById("tz_offset").value);
     params.set("tz_sec",      document.getElementById("tz_sec").value);
+    params.set("tCorr",       document.getElementById("tCorr").value);
+    params.set("altitude_m",  document.getElementById("altitude_m").value);
 
     fetch("/setSettings", {
         method: "POST",
