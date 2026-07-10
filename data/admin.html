@@ -267,6 +267,10 @@
         <form id="form-nrfreset">
             <button type="button" class="action-button" onclick="resetNRF()">Reset nRF905</button>
         </form>
+        <button type="button" class="action-button" onclick="resetI2CBus()"
+                title="Сброс шины I2C: бит-банг тактов, переинициализация Wire и перезапуск всех I2C датчиков">
+            Reset I2C Bus
+        </button>
         <button type="button" class="action-button danger" onclick="resetNVS()">Reset Settings</button>
 
         <!-- Внешний блок STM32 -->

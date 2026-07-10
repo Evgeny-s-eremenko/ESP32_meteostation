@@ -806,6 +806,12 @@ void handleNRFReset(AsyncWebServerRequest *request) {
   request->send(200, "text/plain", "nRF905 reset done.");
 }
 
+void handleResetI2CBus(AsyncWebServerRequest *request) {
+  if (!isAuthenticated(request)) return;
+  resetI2CBus();
+  request->send(200, "text/plain", "I2C bus reset done.");
+}
+
 void resetNVS() {
   ESP_LOGW("NVS", "Полная очистка NVS...");
 
@@ -1022,30 +1028,63 @@ void checkMutex() {
 
 void resetI2CBus() {
   i2cResetCount++;
-  vSemaphoreDelete(i2cMutex);
-  i2cMutex = NULL;
+  if (i2cMutex != NULL) {
+    vSemaphoreDelete(i2cMutex);
+    i2cMutex = NULL;
+  }
   ESP_LOGE("SYS", "Сброс шины I2C (сброс #%u)...", i2cResetCount);
 
-  // Генерируем 10 тактовых импульсов на SCL для освобождения застрявшего устройства
+  // 1. Принудительно освобождаем шину
   pinMode(I2C_SCL, OUTPUT);
+  pinMode(I2C_SDA, OUTPUT);
+  
+  // Принудительный STOP-сигнал на шине
+  digitalWrite(I2C_SDA, LOW);
+  vTaskDelay(pdMS_TO_TICKS(1));
+  digitalWrite(I2C_SCL, HIGH);
+  vTaskDelay(pdMS_TO_TICKS(1));
+  digitalWrite(I2C_SDA, HIGH); 
+  vTaskDelay(pdMS_TO_TICKS(5));
+
+  // Генерируем 10 импульсов такта
   pinMode(I2C_SDA, INPUT_PULLUP);
   for (int i = 0; i < 10; i++) {
-    digitalWrite(I2C_SCL, HIGH); delayMicroseconds(5);
-    digitalWrite(I2C_SCL, LOW);  delayMicroseconds(5);
+    digitalWrite(I2C_SCL, LOW);  delayMicroseconds(10);
+    digitalWrite(I2C_SCL, HIGH); delayMicroseconds(10);
   }
-  digitalWrite(I2C_SCL, HIGH);
-  vTaskDelay(pdMS_TO_TICKS(10));
-
+  
   Wire.end();
-  Wire.begin(I2C_SDA, I2C_SCL);
+  vTaskDelay(pdMS_TO_TICKS(50)); // Даем время логике датчиков «отстояться»
+  
+  // 2. Перезапускаем Wire с явным указанием частоты (снизьте до 100кГц для стабильности)
+  Wire.begin(I2C_SDA, I2C_SCL, 100000); 
   checkMutex();
-  ESP_LOGW("SYS", "Шина I2C сброшена, мьютекс пересоздан");
+  
+  // 3. Пошаговая инициализация с паузами
+  if (bme.begin(0x76)) {
+    ESP_LOGI("SYS", "BME280 восстановлен");
+  } else {
+    ESP_LOGE("SYS", "BME280 не найден!");
+  }
+  vTaskDelay(pdMS_TO_TICKS(20));
 
-  ens160.setOperatingMode(SFE_ENS160_RESET);
-  if (!bme.begin(0x76))  ESP_LOGE("SYS", "BME280 не найден после сброса!");
-  if (!ens160.begin())   ESP_LOGE("SYS", "ENS160 не найден после сброса!");
-  if (!aht20.begin())    ESP_LOGE("SYS", "AHT20 не найден после сброса!");
-  vTaskDelay(pdMS_TO_TICKS(100));
+  if (aht20.begin()) {
+    ESP_LOGI("SYS", "AHT20 восстановлен");
+  } else {
+    ESP_LOGE("SYS", "AHT20 не найден!");
+  }
+  vTaskDelay(pdMS_TO_TICKS(20));
+
+  // Для ENS160: сначала инициализируем базовое состояние, а не RESET-команду
+  if (ens160.begin()) {
+    ESP_LOGI("SYS", "ENS160 обнаружен, выводим из DEEP_SLEEP...");
+    // Явно задаем стандартный режим работы, так как он мог сброситься в сон
+    ens160.setOperatingMode(SFE_ENS160_STANDARD); 
+    // ВАЖНО: Датчику ENS160 после выхода из сна/сброса требуется до 1 секунды!
+    vTaskDelay(pdMS_TO_TICKS(1000)); 
+  } else {
+    ESP_LOGE("SYS", "ENS160 не найден после сброса!");
+  }
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -2223,6 +2262,7 @@ void setup() {
   server.on("/nrf905Status",  HTTP_GET,  handlenRFInfo);
   server.on("/setNRF905",     HTTP_ANY,  handleSetNRF905);
   server.on("/nrfreset",      HTTP_POST, handleNRFReset);
+  server.on("/resetI2C",      HTTP_POST, handleResetI2CBus);
   server.on("/resetNVS",      HTTP_POST, handleResetNVS);
   server.on("/getSettings",   HTTP_GET,  handleGetSettings);
   server.on("/setSettings",   HTTP_POST, handleSetSettings);

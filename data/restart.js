@@ -181,6 +181,13 @@ function resetNRF() {
         .catch(err => { document.getElementById("result").innerText = "Ошибка: " + err; });
 }
 
+function resetI2CBus() {
+    fetch("/resetI2C", { method: "POST" })
+        .then(r => r.text())
+        .then(text => { document.getElementById("result").innerText = text; })
+        .catch(err => { document.getElementById("result").innerText = "Ошибка: " + err; });
+}
+
 // ── Полная очистка NVS (сброс всех настроек) ─────────────────
 
 function resetNVS() {
