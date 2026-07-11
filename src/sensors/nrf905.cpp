@@ -3,6 +3,7 @@
 #include "../config.h"
 #include <board_config.h>
 #include <RH_NRF905.h>
+#include "hamming_secded.h"
 
 extern RH_NRF905 driver;
 
@@ -40,7 +41,7 @@ void queueStmCommand(const char* cmd) {
 
 void taskNRF905(void *pvParameters) {
   unsigned long lastReceived        = millis();
-  const uint8_t EXPECTED_LEN        = 18;
+  const uint8_t EXPECTED_LEN        = HAMMING_PACKET_SIZE;  // 26
   uint8_t       last_burst_id       = 0xFF;
   uint8_t       recoveryState       = 0;
 
@@ -64,6 +65,7 @@ void taskNRF905(void *pvParameters) {
             continue;
           }
 
+          // Проверка XOR-CRC
           uint8_t crc_calc = 0;
           for (uint8_t i = 0; i < len - 1; i++) crc_calc ^= buf[i];
           if (buf[len - 1] != crc_calc) {
@@ -73,6 +75,7 @@ void taskNRF905(void *pvParameters) {
             continue;
           }
 
+          // Дедупликация по burst_id
           uint8_t burst_id = buf[0];
           if (burst_id == last_burst_id) {
             ESP_LOGD("NRF905", "Дубликат burst (id=%u) — пропущен", burst_id);
@@ -82,7 +85,22 @@ void taskNRF905(void *pvParameters) {
           }
           last_burst_id = burst_id;
 
-          const uint8_t *p = buf + 1;
+          // Декодирование Хэмминга SECDED: 24 байта → 16 байт данных
+          uint8_t decoded[HAMMING_DATA_SIZE];
+          int corrected = hamming_decode(buf + 1, decoded);
+
+          if (corrected < 0) {
+            ESP_LOGW("NRF905", "Хэмминг: неисправимая ошибка (>1 бита в байте)");
+            xSemaphoreGive(driverMutex);
+            vTaskDelay(pdMS_TO_TICKS(100));
+            continue;
+          }
+          if (corrected > 0) {
+            ESP_LOGI("NRF905", "Хэмминг: исправлено %d бит", corrected);
+          }
+
+          // Парсинг декодированных данных
+          const uint8_t *p = decoded;
           uint8_t  rawHeater = *p++;
           uint8_t  rawFan    = *p++;
 
