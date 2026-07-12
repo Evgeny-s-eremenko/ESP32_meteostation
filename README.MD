@@ -276,7 +276,7 @@ ESP32 периодически отправляет данные в InfluxDB п�
 
 #### Мониторинг памяти
 
-Фоновая задача `HeapMonitor` каждые 60 секунд логирует `Free Heap` и `Max Alloc`. При падении ниже 32 КБ — предупреждение, ниже 16 КБ — аварийный рестарт.
+Фоновая задача `HeapMonitor` каждые 60 секунд логирует `Free Heap` и `Max Alloc`. При падении ниже 80 КБ — предупреждение, ниже 64 КБ — аварийный рестарт.
 
 ---
 
@@ -286,6 +286,7 @@ ESP32 периодически отправляет данные в InfluxDB п�
 
 ```text
 /index.html       — главная страница
+/mobile.html      — мобильная версия
 /admin.html       — административная панель
 /about.html       — информация о проекте
 /updateform.html  — форма OTA-обновления
@@ -293,6 +294,8 @@ ESP32 периодически отправляет данные в InfluxDB п�
 /restart.js       — перезапуск устройства
 /update.js        — OTA-загрузка
 /sunset.js        — данные восхода/заката
+/d3-local-maps.js — локальные карты (D3.js)
+/favicon.ico      — иконка вкладки
 ```
 
 ---
@@ -335,13 +338,20 @@ cp secrets.h.example secrets.h
 #define SECRET_WIFI_SSID        "your_wifi_ssid"
 #define SECRET_WIFI_PASSWORD    "your_wifi_password"
 
+// Network (DHCP by default)
+#define SECRET_USE_STATIC_IP     false
+#define SECRET_STATIC_IP         "your_static_ip"
+#define SECRET_STATIC_GATEWAY    "your_gateway"
+#define SECRET_STATIC_SUBNET     "your_subnet"
+#define SECRET_STATIC_DNS        "your_dns"
+
 // Авторизация
 #define SECRET_HTTP_USER        "admin"
 #define SECRET_HTTP_PASSWORD    "your_http_password"
 
 // InfluxDB
 #define SECRET_INFLUX_HOST      "your_influxdb_ip"
-#define SECRET_INFLUX_PORT      8086
+#define SECRET_INFLUX_PORT      "your_influxdb_port"
 #define SECRET_INFLUX_DATABASE  "your_database"
 
 // NTP
@@ -349,8 +359,8 @@ cp secrets.h.example secrets.h
 #define SECRET_TZ_OFFSET_SEC    10800   // UTC+3
 
 // Координаты
-#define SECRET_LATITUDE         55.75
-#define SECRET_LONGITUDE        37.62
+#define SECRET_LATITUDE         your_latitude
+#define SECRET_LONGITUDE        your_longitude
 #define SECRET_TZ_OFFSET        3
 ```
 
@@ -468,8 +478,9 @@ pio run -e esp32s3 --target uploadfs
 
 ```text
 ESP32_meteostation/
-├── data/                    # LittleFS (веб-интерфейс)
+├── data/                        # LittleFS (веб-интерфейс)
 │   ├── index.html
+│   ├── mobile.html
 │   ├── admin.html
 │   ├── about.html
 │   ├── updateform.html
@@ -477,23 +488,50 @@ ESP32_meteostation/
 │   ├── restart.js
 │   ├── update.js
 │   ├── sunset.js
-│   └── *.png                # Иконки и изображения
+│   ├── d3-local-maps.js
+│   ├── favicon.ico
+│   └── *.png                    # Иконки и изображения
 │
 ├── include/
-│   └── board_config.h       # Пины per-board (ESP32 / ESP32-S3)
+│   ├── board_config.h           # Пины per-board (ESP32 / ESP32-S3)
+│   └── hamming_secded.h         # Хэмминг SECDED (кодирование/декодирование)
 │
 ├── lib/
-│   └── Forecaster/          # Библиотека прогноза погоды
+│   └── Forecaster/              # Библиотека прогноза погоды
 │
 ├── src/
-│   └── main.cpp             # Основной код
+│   ├── main.cpp
+│   ├── config.h                 # Константы проекта
+│   ├── state.h                  # Глобальные переменные (extern)
+│   ├── display/
+│   │   └── nextion.cpp/.h       # Дисплей Nextion
+│   ├── forecast/
+│   │   └── forecast.cpp/.h      # Прогноз погоды (Замбретти)
+│   ├── network/
+│   │   ├── influxdb.cpp/.h      # Отправка данных в InfluxDB
+│   │   ├── time_sync.cpp/.h     # Синхронизация времени (NTP)
+│   │   └── wifi.cpp/.h          # Управление WiFi
+│   ├── sensors/
+│   │   ├── bme280.cpp/.h        # Давление, температура, влажность
+│   │   ├── co2.cpp/.h           # CO₂ (MH-Z19)
+│   │   ├── ens160.cpp/.h        # TVOC, eCO₂, AQI (ENS160 + AHT20)
+│   │   └── nrf905.cpp/.h        # Радиоканал nRF905
+│   ├── utils/
+│   │   ├── hamming_secded.cpp   # Хэмминг SECDED
+│   │   ├── heap_monitor.cpp/.h  # Мониторинг памяти
+│   │   ├── i2c_recovery.cpp/.h  # Восстановление шины I²C
+│   │   └── settings.cpp/.h      # NVS: чтение/запись настроек
+│   └── web/
+│       ├── ota.cpp/.h           # OTA-обновление
+│       └── server.cpp/.h        # HTTP API + WebSocket
 │
-├── PCB_EasyEDA/             # Платы и схемы
-├── Nextion display project/ # Проект дисплея
+├── logs/                        # Логи мониторинга устройства
+├── PCB_EasyEDA/                 # Платы и схемы
+├── Nextion display project/     # Проект дисплея
 │
-├── secrets.h.example        # Шаблон конфигурации
-├── platformio.ini           # Конфигурация сборки
-├── LICENSE                  # CC BY-NC 4.0
+├── secrets.h.example            # Шаблон конфигурации
+├── platformio.ini               # Конфигурация сборки
+├── LICENSE                      # CC BY-NC 4.0
 └── README.MD
 ```
 
