@@ -11,6 +11,15 @@
 #define NRF905_CMD_LEN          16
 #define NRF905_CMD_QUEUE_LEN    5
 
+// ── Command IDs (match STM32 transmitter) ────────────────────
+#define CMD_HEATER              0x01
+#define CMD_NRF_REST            0x02
+#define CMD_REST                0x03
+#define CMD_BURST_ID_BASE       0xF0
+#define IS_CMD_PACKET(id)       ((id) >= CMD_BURST_ID_BASE)
+#define BURST_COUNT             6
+#define BURST_PAUSE_MS          5
+
 // ── Heap thresholds ──────────────────────────────────────────
 #define HEAP_WARN_THRESHOLD     81920
 #define HEAP_CRIT_THRESHOLD     65536

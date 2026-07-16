@@ -8,6 +8,12 @@
 
 extern RH_NRF905 driver;
 
+static uint8_t calcChecksum(const uint8_t *buf, size_t len) {
+    uint8_t cs = 0;
+    for (size_t i = 0; i < len; i++) cs ^= buf[i];
+    return cs;
+}
+
 float calculateDewPoint(float temp, float hum) {
   const float a = 17.27f, b = 237.7f;
   float alpha = ((a * temp) / (b + temp)) + logf(hum / 100.0f);
@@ -170,20 +176,57 @@ void taskNRF905(void *pvParameters) {
   }
 }
 
+static uint8_t cmdStringToId(const char *cmd) {
+    if (strcmp(cmd, "HEATER")   == 0) return CMD_HEATER;
+    if (strcmp(cmd, "NRF_REST") == 0) return CMD_NRF_REST;
+    if (strcmp(cmd, "REST")     == 0) return CMD_REST;
+    return 0;
+}
+
 void taskNRF905Tx(void *pvParameters) {
     char cmd[NRF905_CMD_LEN];
 
     while (true) {
         if (xQueueReceive(nrf905CmdQueue, cmd, portMAX_DELAY) != pdTRUE) continue;
 
-        ESP_LOGI("NRF905_TX", "Отправка команды: %s", cmd);
+        uint8_t cmd_id = cmdStringToId(cmd);
+        if (cmd_id == 0) {
+            ESP_LOGE("NRF905_TX", "Неизвестная команда: %s", cmd);
+            continue;
+        }
+
+        ESP_LOGI("NRF905_TX", "Отправка команды: %s (id=0x%02X)", cmd, cmd_id);
 
         if (xSemaphoreTake(driverMutex, pdMS_TO_TICKS(5000)) == pdTRUE) {
-            uint8_t len = (uint8_t)strlen(cmd);
-            driver.send((uint8_t *)cmd, len);
-            driver.waitPacketSent();
+            // 1. Собираем 16-байтный payload
+            uint8_t payload[HAMMING_DATA_SIZE];
+            memset(payload, 0, HAMMING_DATA_SIZE);
+            payload[0] = cmd_id;
+
+            // 2. Hamming encode: 16 → 24 байта
+            uint8_t coded[HAMMING_CODED_SIZE];
+            hamming_encode(payload, coded);
+
+            // 3. Перемежение
+            block_interleave(coded);
+
+            // 4. Сборка пакета (26 байт)
+            uint8_t buf[HAMMING_PACKET_SIZE];
+            buf[0] = CMD_BURST_ID_BASE + cmd_id;
+            memcpy(buf + 1, coded, HAMMING_CODED_SIZE);
+            buf[1 + HAMMING_CODED_SIZE] = calcChecksum(buf, 1 + HAMMING_CODED_SIZE);
+
+            // 5. Burst x6
+            for (uint8_t i = 0; i < BURST_COUNT; i++) {
+                driver.send(buf, HAMMING_PACKET_SIZE);
+                driver.waitPacketSent();
+                if (i < BURST_COUNT - 1) {
+                    vTaskDelay(pdMS_TO_TICKS(BURST_PAUSE_MS));
+                }
+            }
+
             xSemaphoreGive(driverMutex);
-            ESP_LOGI("NRF905_TX", "Команда '%s' отправлена", cmd);
+            ESP_LOGI("NRF905_TX", "Команда '%s' отправлена (burst x%d)", cmd, BURST_COUNT);
         } else {
             ESP_LOGE("NRF905_TX", "Таймаут driverMutex! Команда '%s' потеряна", cmd);
         }
