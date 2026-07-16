@@ -4,6 +4,7 @@
 #include <board_config.h>
 #include <RH_NRF905.h>
 #include "hamming_secded.h"
+#include "block_interleave.h"
 
 extern RH_NRF905 driver;
 
@@ -85,9 +86,14 @@ void taskNRF905(void *pvParameters) {
           }
           last_burst_id = burst_id;
 
+          // Депемежение: 24 байта → восстановление порядка Hamming-групп
+          uint8_t coded[HAMMING_CODED_SIZE];
+          memcpy(coded, buf + 1, HAMMING_CODED_SIZE);
+          block_interleave(coded);
+
           // Декодирование Хэмминга SECDED: 24 байта → 16 байт данных
           uint8_t decoded[HAMMING_DATA_SIZE];
-          int corrected = hamming_decode(buf + 1, decoded);
+          int corrected = hamming_decode(coded, decoded);
 
           if (corrected < 0) {
             ESP_LOGW("NRF905", "Хэмминг: неисправимая ошибка (>1 бита в байте)");
