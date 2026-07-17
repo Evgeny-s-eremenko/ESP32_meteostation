@@ -213,7 +213,10 @@ void taskNRF905Tx(void *pvParameters) {
             uint8_t coded[HAMMING_CODED_SIZE];
             hamming_encode(payload, coded);
 
-            // 3. Сборка пакета (26 байт)
+            // 3. Interleave: 24 → 24 байта
+            block_interleave(coded);
+
+            // 4. Сборка пакета (26 байт)
             uint8_t buf[HAMMING_PACKET_SIZE];
             buf[0] = CMD_BURST_ID_BASE + cmd_id;
             memcpy(buf + 1, coded, HAMMING_CODED_SIZE);
