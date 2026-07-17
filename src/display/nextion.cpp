@@ -69,7 +69,7 @@ void sendPage2Data() {
 }
 
 void sendPage3Data() {
-  char info[256];
+  char info[512];
   if (WiFi.status() == WL_CONNECTED) {
     IPAddress ip = WiFi.localIP();
     unsigned long sec = millis() / 1000;
@@ -82,20 +82,38 @@ void sendPage3Data() {
       "RSSI: %d dBm\r\n"
       "Uptime: %luh %lum\r\n"
       "Free Heap: %u KB\r\n"
-      "Max Alloc: %u KB",
+      "Max Alloc: %u KB\r\n"
+      "---\r\n"
+      "nRF905 RX OK: %lu\r\n"
+      "Corrected: %lu\r\n"
+      "Errors: %lu\r\n"
+      "Resets: %lu",
       WiFi.SSID().c_str(),
       ip[0], ip[1], ip[2], ip[3],
       WiFi.RSSI(),
       h, m,
       ESP.getFreeHeap() / 1024,
-      ESP.getMaxAllocHeap() / 1024);
+      ESP.getMaxAllocHeap() / 1024,
+      (unsigned long)nrf905RxOK,
+      (unsigned long)nrf905RxCorrected,
+      (unsigned long)nrf905RxFail,
+      (unsigned long)nRF905ResetCount);
   } else {
     snprintf(info, sizeof(info),
       "WiFi: Disconnected\r\n"
       "Free Heap: %u KB\r\n"
-      "Max Alloc: %u KB",
+      "Max Alloc: %u KB\r\n"
+      "---\r\n"
+      "nRF905 RX OK: %lu\r\n"
+      "Corrected: %lu\r\n"
+      "Errors: %lu\r\n"
+      "Resets: %lu",
       ESP.getFreeHeap() / 1024,
-      ESP.getMaxAllocHeap() / 1024);
+      ESP.getMaxAllocHeap() / 1024,
+      (unsigned long)nrf905RxOK,
+      (unsigned long)nrf905RxCorrected,
+      (unsigned long)nrf905RxFail,
+      (unsigned long)nRF905ResetCount);
   }
   nextion.printf("t2.txt=\"%s\"", info);
   nextionFin();

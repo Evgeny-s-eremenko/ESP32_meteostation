@@ -238,12 +238,10 @@ void handleBMEInfo(AsyncWebServerRequest *request) {
 }
 
 void getNRF905Status(char *buffer, size_t bufferSize) {
-  char    temp[32];
   uint8_t config[10];
   int     pos = 0;
 
   uint8_t status_reg = driver.spiBurstReadRegister(RH_NRF905_REG_W_CONFIG, config, 10);
-  pos += snprintf(buffer, bufferSize, "Status: 0x%02X\n", status_reg);
 
   if (status_reg & 0x20) pos += snprintf(buffer + pos, bufferSize - pos, "[DR] Data Ready\n");
   if (status_reg & 0x80) pos += snprintf(buffer + pos, bufferSize - pos, "[AM] Address Match\n");
@@ -261,13 +259,12 @@ void getNRF905Status(char *buffer, size_t bufferSize) {
                   "Channel: %d\nFreq: %.3f MHz\nTX Power: %s\n",
                   config[0], freq, pwr_str[pwr]);
 
-  pos += snprintf(buffer + pos, bufferSize - pos, "RAW Config: ");
-  for (int i = 0; i < 10; i++) {
-    snprintf(temp, sizeof(temp), "%02X ", config[i]);
-    strncat(buffer, temp, bufferSize - strlen(buffer) - 1);
-  }
-  snprintf(temp, sizeof(temp), "\nnRF905 Resets: %u\n", nRF905ResetCount);
-  strncat(buffer, temp, bufferSize - strlen(buffer) - 1);
+  pos += snprintf(buffer + pos, bufferSize - pos,
+                  "RX OK: %lu\nCorrected: %lu\nErrors: %lu\nResets: %lu\n",
+                  (unsigned long)nrf905RxOK,
+                  (unsigned long)nrf905RxCorrected,
+                  (unsigned long)nrf905RxFail,
+                  (unsigned long)nRF905ResetCount);
 }
 
 void handlenRFInfo(AsyncWebServerRequest *request) {

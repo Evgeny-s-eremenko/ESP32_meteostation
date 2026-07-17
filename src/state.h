@@ -46,6 +46,7 @@ extern volatile int   month;
 
 // ── Диагностика ──────────────────────────────────────────────
 extern volatile uint32_t i2cResetCount, nRF905ResetCount;
+extern volatile uint32_t nrf905RxOK, nrf905RxCorrected, nrf905RxFail;
 
 // ── Время ────────────────────────────────────────────────────
 extern double sunriseTime, sunsetTime;
