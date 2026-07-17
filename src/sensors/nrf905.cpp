@@ -67,6 +67,7 @@ void taskNRF905(void *pvParameters) {
           if (len != EXPECTED_LEN) {
             ESP_LOGW("NRF905", "Неверная длина пакета: ожидалось %d, получено %d",
                      EXPECTED_LEN, len);
+            nrf905RxFail++;
             xSemaphoreGive(driverMutex);
             vTaskDelay(pdMS_TO_TICKS(100));
             continue;
@@ -77,6 +78,7 @@ void taskNRF905(void *pvParameters) {
           for (uint8_t i = 0; i < len - 1; i++) crc_calc ^= buf[i];
           if (buf[len - 1] != crc_calc) {
             ESP_LOGW("NRF905", "Ошибка CRC");
+            nrf905RxFail++;
             xSemaphoreGive(driverMutex);
             vTaskDelay(pdMS_TO_TICKS(100));
             continue;
@@ -103,12 +105,16 @@ void taskNRF905(void *pvParameters) {
 
           if (corrected < 0) {
             ESP_LOGW("NRF905", "Хэмминг: неисправимая ошибка (>1 бита в байте)");
+            nrf905RxFail++;
             xSemaphoreGive(driverMutex);
             vTaskDelay(pdMS_TO_TICKS(100));
             continue;
           }
           if (corrected > 0) {
             ESP_LOGI("NRF905", "Хэмминг: исправлено %d бит", corrected);
+            nrf905RxCorrected++;
+          } else {
+            nrf905RxOK++;
           }
 
           // Парсинг декодированных данных
@@ -207,10 +213,7 @@ void taskNRF905Tx(void *pvParameters) {
             uint8_t coded[HAMMING_CODED_SIZE];
             hamming_encode(payload, coded);
 
-            // 3. Перемежение
-            block_interleave(coded);
-
-            // 4. Сборка пакета (26 байт)
+            // 3. Сборка пакета (26 байт)
             uint8_t buf[HAMMING_PACKET_SIZE];
             buf[0] = CMD_BURST_ID_BASE + cmd_id;
             memcpy(buf + 1, coded, HAMMING_CODED_SIZE);

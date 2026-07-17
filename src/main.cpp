@@ -133,6 +133,9 @@ volatile int   month    = -1;
 // Диагностика
 volatile uint32_t i2cResetCount   = 0;
 volatile uint32_t nRF905ResetCount = 0;
+volatile uint32_t nrf905RxOK        = 0;
+volatile uint32_t nrf905RxCorrected = 0;
+volatile uint32_t nrf905RxFail      = 0;
 
 // Время
 double sunriseTime = 0.0;
