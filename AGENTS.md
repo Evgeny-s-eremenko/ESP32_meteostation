@@ -41,3 +41,74 @@ ESP32 weather station firmware (PlatformIO / Arduino / FreeRTOS) with a LittleFS
 
 - Skip `.pio/`, `logs/`, `.mimocode/`, images, and generated files unless explicitly asked.
 - Start from the minimum relevant files (`state.h`, `main.cpp`, the module in question); expand only as references require.
+
+## Diagnostics workflow
+
+Порядок действий при диагностике станции через MCP-инструменты:
+
+1. **Первым делом — `get_settings`**: содержит `tz_offset`/`tz_sec` (часовой пояс) и координаты — без них невозможно корректно интерпретировать время, восход/закат и солнечную высоту. Также полезен для сверки настроек WiFi/InfluxDB/NTP.
+2. **Сбор данных** (параллельно): `get_graph_data`, `get_tasks_state`, `get_sensor_info`, `get_radio_status`, `get_system_info`, `get_time_data`.
+3. **Оценка**:heap < 80 KB — предупреждение, < 64 KB — критично; задача в `false` — проверить, почему остановилась; `get_sensor_info` показывает `Not Found` — проблема с датчиком.
+4. **CO2 мониторинг**: 400–600 ppm — норма, 600–1000 ppm — ухудшение (рекомендовать проветривание), >1000 ppm — плохо.
+5. **Восстановление ENS160 при `Not Found`**: задача TVOC самоудаляется после 3 подряд ошибок I2C. Аппаратный сбой подтверждается, если BME280 на той же шине работает, а ENS160/AHT20 — нет. Алгоритм: `reset_i2c` → `toggle_task TVOC` → повторить `get_sensor_info`. Если после `restart` ENS160 по-прежнему `Not Found` — аппаратная неисправность, требуется физический осмотр модуля.
+
+## MCP Tools (meteostation)
+
+MCP-сервер `meteostation` предоставляет инструменты для диагностики и управления реальной метеостанцией по HTTP API. Конфигурация в `~/.config/opencode/opencode.jsonc`. Исходник сервера: `mcp_server/server.py`.
+
+### Read-only (permission: allow, без подтверждения)
+
+- `meteostation_get_graph_data` — метеоданные (JSON). Источники: локальные BME280/CO2, уличные STM32/nRF905 (T/H/PM/UV/LUX), TVOC от ENS160. UV=0/LUX=0 ночью — норма.
+- `meteostation_get_tasks_state` — состояния FreeRTOS-задач (JSON: nRF905, CO2, nextion, BMP280, InfluxDB, Forecaster, NTP, TVOC)
+- `meteostation_get_system_info` — Chip Model, Free Heap, Max Alloc, Uptime, RSSI, стек
+- `meteostation_get_sensor_info` — диагностика BME280, ENS160, счётчик сбросов I2C (AHT20 не отображается)
+- `meteostation_get_radio_status` — регистры nRF905, канал, частота, мощность, статистика RX/ошибок.
+- `meteostation_get_time_data` — локальное время станции, восход/закат, высота солнца (через WebSocket /ws1)
+- `meteostation_get_settings` — текущие настройки NVS (пароли маскируются `****`). Рекомендуется как **первый** вызов при диагностике — содержит `tz_offset`, `tz_sec`, координаты и высоту, необходимые для интерпретации данных времени и солнечных параметров.
+
+### Mutating (permission: ask, требуют подтверждения)
+
+- `meteostation_set_settings` — изменение настроек (WiFi, InfluxDB, NTP, координаты, статический IP...). Сохраняется в NVS, применяется после перезагрузки.
+- `meteostation_toggle_task` — включение/выключение задачи FreeRTOS (nRF905, CO2, nextion, BMP280, InfluxDB, Forecaster, NTP, TVOC)
+- `meteostation_send_command` — команды удалённому STM32 через nRF905:
+  - `HEATER` — принудительное включение обогрева на удалённом уличном SHT31
+  - `NRF_REST` — сброс модуля nRF905 на удалённом уличном блоке
+  - `REST` — полная перезагрузка STM32 уличного блока
+- `meteostation_set_nrf905` — настройка канала (0-255), диапазона (430/868/915 МГц), мощности. Сохраняется в NVS.
+- `meteostation_reset_nrf905` — аппаратный сброс локального nRF905
+- `meteostation_reset_i2c` — программный сброс шины I2C
+- `meteostation_reset_nvs` — полный сброс NVS до заводских настроек
+- `meteostation_restart` — перезагрузка ESP32
+- `meteostation_upload_firmware` — OTA-загрузка прошивки (.bin)
+- `meteostation_upload_filesystem` — OTA-загрузка LittleFS (.bin, имя содержит "littlefs")
+
+### Когда использовать
+
+- Диагностика проблем с датчиками, радиоканалом или памятью
+- Проверка состояния станции без ручного захода в браузер
+- Мониторинг FreeRTOS-задач и потребления памяти
+- Восстановление аппаратных сбоев (I2C reset, перезапуск задач) и вывод о необходимости физического вмешательства
+- Загрузка прошивки и LittleFS по OTA
+
+### Когда НЕ использовать
+
+- Достаточно прочитать исходный код (эндпоинты описаны в `src/web/server.cpp`)
+- Не отправлять mutating-команды без явного запроса пользователя
+
+### Справочник: статусы HEAT/FAN
+
+Определения в `src/config.h`:
+
+| Переменная | Значение | Константа | Описание |
+|------------|----------|-----------|----------|
+| `heaterStatus` | 1 | `ST_NORMAL` | Обогрев выключен, нормальная работа |
+| `heaterStatus` | 2 | `ST_HEATER` | Обогрев включён (подогрев датчика) |
+| `heaterStatus` | 3 | `ST_COOLING` | Остывание после обогрева |
+| `fanStatus` | 0 | `ST_FAN_OFF` | Вентилятор выключен |
+| `fanStatus` | 1 | `ST_FAN_ON` | Вентилятор включён |
+
+При `heaterStatus` = 2 или 3 данные температуры/влажности/точки росы **не пишутся** в InfluxDB (считаются некорректными из-за нагрева датчика). Сами статусы HEAT и FAN пишутся всегда.
+
+### Справочник: AHT20
+
+AHT20 расположен на одном I2C-модуле с ENS160 и используется **только** для температурной компенсации ENS160 (`ens160.setTempCompensationCelsius()` / `ens160.setRHCompensationFloat()`). Значения AHT20 не становятся глобальными переменными, не отображаются на дисплее, не отправляются в InfluxDB и не доступны через HTTP API.

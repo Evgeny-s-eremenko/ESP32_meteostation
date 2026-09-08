@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 import httpx
+import websocket as ws_lib
 from mcp.server.mcpserver import MCPServer
 
 # ─── Конфигурация ────────────────────────────────────────────────────────────
@@ -90,9 +91,16 @@ def _format_error(e: Exception) -> str:
 
 @mcp.tool()
 def meteostation_get_graph_data() -> str:
-    """Получить текущие метеоданные (температура, влажность, давление, CO2, TVOC, PM2.5, PM10, UV, LUX и т.д.).
+    """Получить текущие метеоданные.
 
-    Возвращает JSON со всеми измерениями с уличного и внутреннего датчиков.
+    Возвращает JSON с измерениями из разных источников:
+    - Базовая станция (BME280/MH-Z19): homeTemp, homeHum, homeDP, CO2
+    - Уличный блок (STM32 через nRF905): temperature, humidity, dewPoint, PM2.5, PM10, UV, LUX
+    - ENS160: TVOC (только если задача TVOC активна)
+    - Прогноз: forecast, trend
+    - Статусы: FAN (0/1), HEAT (1/2/3)
+
+    UV=0 и LUX=0 при ночной работе — нормальное поведение датчиков, а не сбой.
     """
     cfg = _get_config()
     try:
@@ -132,9 +140,10 @@ def meteostation_get_system_info() -> str:
 
 @mcp.tool()
 def meteostation_get_sensor_info() -> str:
-    """Получить диагностику I2C-датчиков: BME280, ENS160, AHT20 и счётчик сбросов I2C.
+    """Получить диагностику I2C-датчиков: BME280, ENS160 и счётчик сбросов I2C.
 
-    Возвращает текстовый отчёт о состоянии датчиков и шины I2C.
+    Возвращает текстовый отчёт: температура/влажность/давление BME280, режим ENS160, число сбросов I2C.
+    AHT20 не выводится в отчёте — используется только для температурной компенсации ENS160.
     """
     cfg = _get_config()
     try:
@@ -149,6 +158,8 @@ def meteostation_get_radio_status() -> str:
     """Получить состояние и параметры радиомодуля nRF905: регистры, канал, частота, мощность, статистика приёма.
 
     Возвращает текстовый отчёт о состоянии радиоканала.
+    Примечание: флаг [CRC_OK]/[CRC_ERR] в отчёте некорректен (бит 6 статусного регистра nRF905 зарезервирован).
+    Реальная статистика ошибок — в поле Errors (программный XOR-CRC).
     """
     cfg = _get_config()
     try:
@@ -172,6 +183,28 @@ def meteostation_get_settings() -> str:
         return resp.text
     except Exception as e:
         return f"Ошибка: {_format_error(e)}"
+
+
+@mcp.tool()
+def meteostation_get_time_data() -> str:
+    """Получить данные о локальном времени станции, восходе/закате солнца и высоте солнца.
+
+    Подключается по WebSocket к /ws1 и запрашивает данные времени.
+    Возвращает JSON: nowTime (UNIX), sunriseTime, sunsetTime (секунды с полуночи),
+    sunElevation (градусы), solarNoon (секунды с полуночи).
+    """
+    cfg = _get_config()
+    # Преобразуем HTTP URL в WebSocket URL
+    ws_url = cfg["url"].replace("http://", "ws://").replace("https://", "wss://")
+    ws_endpoint = f"{ws_url}/ws1"
+    try:
+        socket = ws_lib.create_connection(ws_endpoint, timeout=cfg["timeout"])
+        socket.send("getTime")
+        result = socket.recv()
+        socket.close()
+        return result
+    except Exception as e:
+        return f"Ошибка WebSocket: {e}"
 
 
 # ─── Mutating tools ──────────────────────────────────────────────────────────

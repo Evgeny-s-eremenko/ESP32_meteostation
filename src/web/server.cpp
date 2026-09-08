@@ -218,11 +218,11 @@ void getBME280Status(char *buffer, size_t len) {
       offset += snprintf(buffer + offset, len - offset, "ENS160: Not Found\n");
     } else {
       offset += snprintf(buffer + offset, len - offset,
-                         "ENS160: Found\nMode: %s\nStatus: %s\nI2C Resets: %u\n",
+                         "ENS160: Found\nMode: %s\nStatus: %s\n",
                          modeToString(ens160.getOperatingMode()),
-                         ens160.getOperationError() ? "Error" : "OK",
-                         i2cResetCount);
+                         ens160.getOperationError() ? "Error" : "OK");
     }
+    offset += snprintf(buffer + offset, len - offset, "I2C Resets: %u\n", i2cResetCount);
     xSemaphoreGive(i2cMutex);
   } else {
     snprintf(buffer, len, "i2cMutex занят (задача: %s)\n", pcTaskGetTaskName(NULL));
@@ -245,8 +245,6 @@ void getNRF905Status(char *buffer, size_t bufferSize) {
 
   if (status_reg & 0x20) pos += snprintf(buffer + pos, bufferSize - pos, "[DR] Data Ready\n");
   if (status_reg & 0x80) pos += snprintf(buffer + pos, bufferSize - pos, "[AM] Address Match\n");
-  pos += snprintf(buffer + pos, bufferSize - pos,
-                  (status_reg & 0x40) ? "[CRC_ERR]\n" : "[CRC_OK]\n");
 
   uint8_t band_bit = config[1] & RH_NRF905_CONFIG_1_HFREQ_PLL;
   float   freq     = 422.4f + (config[0] / 10.0f);
