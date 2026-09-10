@@ -1,11 +1,12 @@
 const socket = new WebSocket("ws://" + location.hostname + "/ws1");
 
-let nowTime = 0;         // Текущее время (UNIX timestamp)
-let sunriseTime = 0;     // Время восхода (секунды с полуночи)
-let sunsetTime = 0;      // Время заката (секунды с полуночи)
-let sunElevation = 0;    // Высота солнца над горизонтом (градусы)
-let solarNoon = 0;       // Время истинного полдня (секунды с полуночи)
+let nowTime = 0;
+let sunriseTime = 0;
+let sunsetTime = 0;
+let sunElevation = 0;
+let solarNoon = 0;
 let dataInitialized = false;
+let canvasReady = false;
 
 socket.onmessage = function (event) {
     try {
@@ -17,21 +18,21 @@ socket.onmessage = function (event) {
         if ("solarNoon" in data) solarNoon = data.solarNoon;
 
         dataInitialized = true;
+        initCanvas();
         updateSunLabels();
+        drawSunArc();
         updateSunPosition();
     } catch (e) {
         console.error("Ошибка парсинга JSON:", e);
     }
 };
 
-// Формат (HH:MM)
 function formatTime(secPastMidnight) {
     const h = Math.floor(secPastMidnight / 3600).toString().padStart(2, '0');
     const m = Math.floor((secPastMidnight % 3600) / 60).toString().padStart(2, '0');
-    return `${h}:${m}`;
+    return h + ":" + m;
 }
 
-// Формат (YYYY-MM-DD HH:MM)
 function formatDateTime(unixSec) {
     const date = new Date(unixSec * 1000);
     const year = date.getFullYear();
@@ -39,74 +40,165 @@ function formatDateTime(unixSec) {
     const day = date.getDate().toString().padStart(2, '0');
     const hh = date.getHours().toString().padStart(2, '0');
     const mm = date.getMinutes().toString().padStart(2, '0');
-    return `${year}-${month}-${day} ${hh}:${mm}`;
+    return year + "-" + month + "-" + day + " " + hh + ":" + mm;
 }
 
-// Заполняем метки восхода, заката и полдня
+function formatDuration(seconds) {
+    var h = Math.floor(seconds / 3600);
+    var m = Math.floor((seconds % 3600) / 60);
+    return h + " ч " + m.toString().padStart(2, '0') + " мин";
+}
+
 function updateSunLabels() {
-    document.getElementById('sunriseLabel').textContent = "Восход: " + formatTime(sunriseTime);
-    document.getElementById('sunsetLabel').textContent = "Закат: " + formatTime(sunsetTime);
-    document.getElementById('solarNoonLabel').textContent = "Полдень: " + formatTime(solarNoon);
+    var el;
+    el = document.getElementById('sunriseLabel');
+    if (el) el.textContent = "Восход: " + formatTime(sunriseTime);
+    el = document.getElementById('sunsetLabel');
+    if (el) el.textContent = "Закат: " + formatTime(sunsetTime);
+    el = document.getElementById('solarNoonLabel');
+    if (el) el.textContent = "Полдень: " + formatTime(solarNoon);
+
+    var dayLen = sunsetTime - sunriseTime;
+    var nightLen = 86400 - dayLen;
+    el = document.getElementById('dayLength');
+    if (el) el.textContent = formatDuration(dayLen);
+    el = document.getElementById('nightLength');
+    if (el) el.textContent = formatDuration(nightLen);
 }
 
-// Обновляем текущее время и дату
 function updateCurrentDateTime() {
-    document.getElementById('currentDateTime').textContent = formatDateTime(nowTime);
+    var el = document.getElementById('currentDateTime');
+    if (el) el.textContent = formatDateTime(nowTime);
 }
 
-// Движение солнца по дуге + отображение высоты
+function initCanvas() {
+    if (canvasReady) return;
+    var canvas = document.getElementById('sunCanvas');
+    if (!canvas) return;
+    var dpr = window.devicePixelRatio || 1;
+    var rect = canvas.getBoundingClientRect();
+    canvas.width = rect.width * dpr;
+    canvas.height = rect.height * dpr;
+    var ctx = canvas.getContext('2d');
+    ctx.scale(dpr, dpr);
+    canvasReady = true;
+}
+
+function drawSunArc() {
+    if (!dataInitialized) return;
+    var canvas = document.getElementById('sunCanvas');
+    if (!canvas) return;
+    var ctx = canvas.getContext('2d');
+    var dpr = window.devicePixelRatio || 1;
+    var W = canvas.width / dpr;
+    var H = canvas.height / dpr;
+
+    ctx.clearRect(0, 0, W, H);
+
+    var horizonY = Math.round(H * 0.65);
+    var amplitude = Math.round(H * 0.55);
+    var cx = W * solarNoon / 86400;
+
+    function curveY(x) {
+        var v = Math.cos((x / cx - 1) * Math.PI);
+        return horizonY - amplitude * v;
+    }
+
+    ctx.beginPath();
+    ctx.setLineDash([6, 4]);
+    ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+    ctx.lineWidth = 1;
+    ctx.moveTo(0, horizonY);
+    ctx.lineTo(W, horizonY);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    var hours = [0, 6, 12, 18];
+    ctx.beginPath();
+    ctx.setLineDash([4, 4]);
+    ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+    ctx.lineWidth = 1;
+    for (var i = 0; i < hours.length; i++) {
+        var x = Math.round(W * hours[i] / 24);
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, horizonY);
+    }
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    ctx.fillStyle = '#aaaaaa';
+    ctx.font = '10px sans-serif';
+    ctx.textAlign = 'center';
+    for (var i = 0; i < hours.length; i++) {
+        var x = Math.round(W * hours[i] / 24);
+        var label = hours[i].toString().padStart(2, '0');
+        ctx.fillText(label, x, horizonY + 14);
+    }
+
+    ctx.fillStyle = 'rgba(80, 70, 50, 0.15)';
+    ctx.fillRect(0, horizonY, W, H - horizonY);
+
+    ctx.beginPath();
+    ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+    ctx.lineWidth = 2;
+    var step = W / 288;
+    for (var i = 0; i <= 288; i++) {
+        var x = i * step;
+        var y = curveY(x);
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+}
+
 function updateSunPosition() {
     if (!dataInitialized) return;
-    const wrapper = document.getElementById('sunArcWrapper');
-    const sunElem = document.getElementById('sun');
-    const elevElem = document.getElementById('sunElevation');
+    var canvas = document.getElementById('sunCanvas');
+    var sunElem = document.getElementById('sun');
+    var elevElem = document.getElementById('sunElevation');
+    if (!canvas || !sunElem) return;
 
-    const width = wrapper.clientWidth;
-    const height = wrapper.clientHeight;
+    var dpr = window.devicePixelRatio || 1;
+    var W = canvas.width / dpr;
+    var H = canvas.height / dpr;
+    var horizonY = Math.round(H * 0.65);
+    var amplitude = Math.round(H * 0.55);
+    var cx = W * solarNoon / 86400;
 
-    // Центр полукруга внизу
-    const r = width / 2;
-    const cx = r;
-    const cy = height;
+    var date = new Date(nowTime * 1000);
+    var sec = date.getHours() * 3600 + date.getMinutes() * 60 + date.getSeconds();
 
-    // Секунды с полуночи для nowTime
-    const date = new Date(nowTime * 1000);
-    const secondsPastMidnight = date.getHours() * 3600 + date.getMinutes() * 60 + date.getSeconds();
+    var sunX = W * sec / 86400;
+    var v = Math.cos((sunX / cx - 1) * Math.PI);
+    var sunY = horizonY - amplitude * v;
 
-    if (secondsPastMidnight < sunriseTime || secondsPastMidnight > sunsetTime) {
-        // Ночь — солнце под горизонтом
-        sunElem.style.left = (width / 2) + 'px';
-        sunElem.style.top = height + 'px';
+    var canvasRect = canvas.getBoundingClientRect();
+    var cssX = canvasRect.left - canvasRect.left + (sunX / W) * canvasRect.width;
+    var cssY = canvasRect.top - canvasRect.top + (sunY / H) * canvasRect.height;
+
+    sunElem.style.left = cssX + 'px';
+    sunElem.style.top = cssY + 'px';
+
+    if (sec < sunriseTime || sec > sunsetTime) {
         elevElem.textContent = '';
     } else {
-        // Доля дня [0..1]
-        const dayProgress = (secondsPastMidnight - sunriseTime) / (sunsetTime - sunriseTime);
-        const x = width * dayProgress;
-        const dx = x - cx;
-        const dy = Math.sqrt(r * r - dx * dx);
-
-        sunElem.style.left = x + 'px';
-        sunElem.style.top = (cy - dy) + 'px';
-
-        // Отображаем реальную высоту солнца (с сервера)
-        elevElem.textContent = Math.round(sunElevation) + '°';
+        elevElem.textContent = Math.round(sunElevation) + '\u00B0';
     }
 
     nowTime++;
     updateCurrentDateTime();
 }
 
-window.addEventListener('load', () => {
-    socket.onopen = () => {
-        // Отправляем запрос сразу при подключении — без задержки
+window.addEventListener('load', function () {
+    socket.onopen = function () {
         if (socket.readyState === WebSocket.OPEN) {
             socket.send("getTime");
         }
     };
-    setInterval(() => {
+    setInterval(function () {
         if (socket.readyState === WebSocket.OPEN) {
             socket.send("getTime");
         }
         updateSunPosition();
-    }, 5000);
+    }, 10000);
 });

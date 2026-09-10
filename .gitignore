@@ -36,3 +36,6 @@ replacement.txt
 # ── Python ────────────────────────────────────────────────────
 __pycache__/
 *.pyc
+
+# ── Playwright MCP ────────────────────────────────────────────
+.playwright-mcp/screenshots/

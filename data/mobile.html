@@ -151,78 +151,48 @@
 
         .sunset-widget:hover { background-color: #575eac; }
 
-        .sunset-top-row {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            width: 100%;
-            margin-bottom: 6px;
-        }
-
         .solar-noon-label {
             text-align: center;
             font-size: 12px;
             color: #ffd700;
-            flex: 1;
-        }
-
-        .sun-arc-row {
-            display: flex;
-            align-items: flex-end;
-            justify-content: space-between;
-            width: 100%;
             margin-bottom: 4px;
         }
 
+        .sunset-top-row {
+            position: relative;
+            width: 100%;
+            height: 100px;
+            margin-bottom: 4px;
+        }
+
+        #sunCanvas {
+            width: 100%;
+            height: 100px;
+            display: block;
+        }
+
         .lux-data, .uv-data {
+            position: absolute;
+            top: 50%;
+            transform: translateY(-50%);
             font-size: 10px;
             text-align: center;
             min-width: 50px;
         }
 
-        .sunArc-container {
-            position: relative;
-            width: 180px;
-            height: 90px;
-            flex-shrink: 0;
-        }
-
-        #sunArcWrapper {
-            position: absolute;
-            left: 50%; top: 0;
-            transform: translateX(-50%);
-            width: 180px; height: 90px;
-            overflow: visible;
-        }
-
-        #sunArc {
-            position: absolute;
-            top: 0; left: 0;
-            width: 180px; height: 90px;
-            border-top-left-radius: 90px;
-            border-top-right-radius: 90px;
-            border: 2px solid #fff;
-            background-color: #428bc9;
-            box-sizing: border-box;
-            overflow: hidden;
-        }
-
-        .horizon {
-            position: absolute;
-            bottom: 0; left: 0;
-            width: 100%; height: 15%;
-            background: #554a22;
-        }
+        .lux-data { left: 0; }
+        .uv-data  { right: 0; }
 
         #sun {
             position: absolute;
-            width: 22px; height: 22px;
+            width: 20px; height: 20px;
             border-radius: 50%;
             background: gold;
             transform: translate(-50%, -50%);
             display: flex;
             align-items: center;
             justify-content: center;
+            pointer-events: none;
         }
 
         #sunElevation {
@@ -233,12 +203,34 @@
             line-height: 1;
         }
 
+        .day-info {
+            display: flex;
+            gap: 20px;
+            justify-content: center;
+            margin: 4px 0;
+        }
+
+        .day-info-label {
+            font-size: 10px;
+            color: #979797e5;
+            text-align: center;
+        }
+
+        #dayLength, #nightLength {
+            font-size: 11px;
+            text-align: center;
+        }
+
+        .sun-row {
+            display: flex;
+            justify-content: space-between;
+            width: 100%;
+            margin: 4px 0;
+        }
+
         .sunrise-label, .sunset-label {
             font-size: 10px;
             text-align: center;
-            min-width: 50px;
-            align-self: flex-end;
-            padding-bottom: 3px;
             white-space: pre-line;
         }
 
@@ -391,29 +383,33 @@
     <!-- Восход/Закат + освещённость + УФ -->
     <div class="full-row">
         <div class="sunset-widget">
+            <div class="solar-noon-label" id="solarNoonLabel"></div>
             <div class="sunset-top-row">
                 <div class="lux-data">
                     <div>Освещённость</div>
                     <div id="LUX"></div>
                 </div>
-                <div class="solar-noon-label" id="solarNoonLabel"></div>
                 <div class="uv-data">
                     <div>УФ-индекс</div>
                     <div id="UV"></div>
                 </div>
-            </div>
-            <div class="sun-arc-row">
-                <div class="sunrise-label" id="sunriseLabel"></div>
-                <div class="sunArc-container">
-                    <div id="sunArcWrapper">
-                        <div id="sunArc">
-                            <div class="horizon"></div>
-                        </div>
-                        <div id="sun">
-                            <span id="sunElevation"></span>
-                        </div>
-                    </div>
+                <canvas id="sunCanvas"></canvas>
+                <div id="sun">
+                    <span id="sunElevation"></span>
                 </div>
+            </div>
+            <div class="day-info">
+                <div>
+                    <div class="day-info-label">Продолжительность дня</div>
+                    <div id="dayLength"></div>
+                </div>
+                <div>
+                    <div class="day-info-label">Продолжительность ночи</div>
+                    <div id="nightLength"></div>
+                </div>
+            </div>
+            <div class="sun-row">
+                <div class="sunrise-label" id="sunriseLabel"></div>
                 <div class="sunset-label" id="sunsetLabel"></div>
             </div>
             <div class="bottom-row">
@@ -591,65 +587,7 @@
             .catch(err => console.error("Ошибка загрузки данных:", err));
     }
 
-    // ── Sunset / Sunrise ──
-    const socket = new WebSocket("ws://" + location.hostname + "/ws1");
-    let nowTime = 0, sunriseTime = 0, sunsetTime = 0, sunElevation = 0, solarNoon = 0, dataInitialized = false;
-
-    socket.onmessage = function(e) {
-        try {
-            const d = JSON.parse(e.data);
-            if ("nowTime" in d) nowTime = d.nowTime;
-            if ("sunriseTime" in d) sunriseTime = d.sunriseTime;
-            if ("sunsetTime" in d) sunsetTime = d.sunsetTime;
-            if ("sunElevation" in d) sunElevation = d.sunElevation;
-            if ("solarNoon" in d) solarNoon = d.solarNoon;
-            dataInitialized = true;
-            updateSunLabels();
-            updateSunPosition();
-        } catch (err) { console.error("Ошибка парсинга JSON:", err); }
-    };
-
-    function formatTime(s) {
-        const h = Math.floor(s / 3600).toString().padStart(2, '0');
-        const m = Math.floor((s % 3600) / 60).toString().padStart(2, '0');
-        return h + ":" + m;
-    }
-    function formatDateTime(u) {
-        const d = new Date(u * 1000);
-        return d.getFullYear() + "-" + (d.getMonth()+1).toString().padStart(2,'0') + "-" + d.getDate().toString().padStart(2,'0') + " " + d.getHours().toString().padStart(2,'0') + ":" + d.getMinutes().toString().padStart(2,'0');
-    }
-    function updateSunLabels() {
-        document.getElementById('sunriseLabel').textContent = "Восход:\n" + formatTime(sunriseTime);
-        document.getElementById('sunsetLabel').textContent = "Закат:\n" + formatTime(sunsetTime);
-        document.getElementById('solarNoonLabel').textContent = "Полдень: " + formatTime(solarNoon);
-    }
-    function updateCurrentDateTime() {
-        document.getElementById('currentDateTime').textContent = formatDateTime(nowTime);
-    }
-    function updateSunPosition() {
-        if (!dataInitialized) return;
-        const w = document.getElementById('sunArcWrapper');
-        const s = document.getElementById('sun');
-        const e = document.getElementById('sunElevation');
-        const width = w.clientWidth, height = w.clientHeight;
-        const r = width / 2, cx = r, cy = height;
-        const d = new Date(nowTime * 1000);
-        const sec = d.getHours() * 3600 + d.getMinutes() * 60 + d.getSeconds();
-        if (sec < sunriseTime || sec > sunsetTime) {
-            s.style.left = (width / 2) + 'px';
-            s.style.top = height + 'px';
-            e.textContent = '';
-        } else {
-            const p = (sec - sunriseTime) / (sunsetTime - sunriseTime);
-            const x = width * p, dx = x - cx;
-            const dy = Math.sqrt(r * r - dx * dx);
-            s.style.left = x + 'px';
-            s.style.top = (cy - dy) + 'px';
-            e.textContent = Math.round(sunElevation) + '°';
-        }
-        nowTime++;
-        updateCurrentDateTime();
-    }
+    // ── Sunset / Sunrise (sunset.js) ──
 
     // ── Init ──
     window.addEventListener('load', () => {
@@ -669,16 +607,8 @@
         // Data polling
         fetchDataAndUpdate();
         setInterval(fetchDataAndUpdate, 5000);
-
-        // WebSocket
-        socket.onopen = () => {
-            if (socket.readyState === WebSocket.OPEN) socket.send("getTime");
-        };
-        setInterval(() => {
-            if (socket.readyState === WebSocket.OPEN) socket.send("getTime");
-            updateSunPosition();
-        }, 5000);
     });
     </script>
+    <script src="/sunset.js?v=2"></script>
 </body>
 </html>

@@ -112,3 +112,29 @@ MCP-сервер `meteostation` предоставляет инструмент�
 ### Справочник: AHT20
 
 AHT20 расположен на одном I2C-модуле с ENS160 и используется **только** для температурной компенсации ENS160 (`ens160.setTempCompensationCelsius()` / `ens160.setRHCompensationFloat()`). Значения AHT20 не становятся глобальными переменными, не отображаются на дисплее, не отправляются в InfluxDB и не доступны через HTTP API.
+
+## Playwright (web UI verification)
+
+MCP-сервер `playwright` подключён для визуальной проверки веб-интерфейса метеостанции.
+
+### Назначение
+
+- Открывать страницы веб-интерфейста по IP станции (`http://<ip>`)
+- Делать скриншоты для визуальной диагностики UI
+- Проверять корректность отображения данных, кнопок, графиков
+
+### Правила
+
+- **Скриншоты** всегда сохранять в `.playwright-mcp/screenshots/` (каталог добавлен в `.gitignore`)
+- Перед началом работы получать IP станции через `get_system_info` или `get_settings`
+- Использовать `navigate → snapshot → screenshot` workflow
+- Для проверки отдельных элементов использовать `snapshot` (text-based) вместо скриншота
+
+### Пример использования
+
+```
+1. meteostation_get_system_info → получить IP (например, 192.168.1.230)
+2. playwright_browser_navigate → http://192.168.1.230
+3. playwright_browser_snapshot → проверить данные в DOM
+4. playwright_browser_take_screenshot → сохранить в .playwright-mcp/screenshots/
+```
