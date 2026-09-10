@@ -38,4 +38,4 @@ __pycache__/
 *.pyc
 
 # ── Playwright MCP ────────────────────────────────────────────
-.playwright-mcp/screenshots/
+.playwright-mcp/

@@ -8,6 +8,18 @@ let solarNoon = 0;
 let dataInitialized = false;
 let canvasReady = false;
 
+function requestTime() {
+    if (socket.readyState === WebSocket.OPEN) {
+        socket.send("getTime");
+    }
+}
+
+socket.onopen = requestTime;
+
+if (socket.readyState === WebSocket.OPEN) {
+    requestTime();
+}
+
 socket.onmessage = function (event) {
     try {
         const data = JSON.parse(event.data);
@@ -84,6 +96,26 @@ function initCanvas() {
     canvasReady = true;
 }
 
+function curveYAtSeconds(seconds, horizonY, dayAmplitude, nightAmplitude, H) {
+    if (seconds >= sunriseTime && seconds <= sunsetTime) {
+        if (seconds <= solarNoon) {
+            var morningProgress = (seconds - sunriseTime) / (solarNoon - sunriseTime);
+            return horizonY - dayAmplitude * Math.sin(morningProgress * Math.PI / 2);
+        }
+
+        var eveningProgress = (sunsetTime - seconds) / (sunsetTime - solarNoon);
+        return horizonY - dayAmplitude * Math.sin(eveningProgress * Math.PI / 2);
+    }
+
+    if (seconds > sunsetTime) {
+        var eveningNightProgress = (seconds - sunsetTime) / (86400 - sunsetTime);
+        return horizonY + nightAmplitude * Math.sin(eveningNightProgress * Math.PI / 2);
+    }
+
+    var morningNightProgress = (sunriseTime - seconds) / sunriseTime;
+    return horizonY + nightAmplitude * Math.sin(morningNightProgress * Math.PI / 2);
+}
+
 function drawSunArc() {
     if (!dataInitialized) return;
     var canvas = document.getElementById('sunCanvas');
@@ -96,13 +128,8 @@ function drawSunArc() {
     ctx.clearRect(0, 0, W, H);
 
     var horizonY = Math.round(H * 0.65);
-    var amplitude = Math.round(H * 0.55);
-    var cx = W * solarNoon / 86400;
-
-    function curveY(x) {
-        var v = Math.cos((x / cx - 1) * Math.PI);
-        return horizonY - amplitude * v;
-    }
+    var dayAmplitude = Math.round(H * 0.55);
+    var nightAmplitude = Math.round(H * 0.25);
 
     ctx.beginPath();
     ctx.setLineDash([6, 4]);
@@ -144,7 +171,8 @@ function drawSunArc() {
     var step = W / 288;
     for (var i = 0; i <= 288; i++) {
         var x = i * step;
-        var y = curveY(x);
+        var seconds = i * 86400 / 288;
+        var y = curveYAtSeconds(seconds, horizonY, dayAmplitude, nightAmplitude, H);
         if (i === 0) ctx.moveTo(x, y);
         else ctx.lineTo(x, y);
     }
@@ -162,15 +190,14 @@ function updateSunPosition() {
     var W = canvas.width / dpr;
     var H = canvas.height / dpr;
     var horizonY = Math.round(H * 0.65);
-    var amplitude = Math.round(H * 0.55);
-    var cx = W * solarNoon / 86400;
+    var dayAmplitude = Math.round(H * 0.55);
+    var nightAmplitude = Math.round(H * 0.25);
 
     var date = new Date(nowTime * 1000);
     var sec = date.getHours() * 3600 + date.getMinutes() * 60 + date.getSeconds();
 
     var sunX = W * sec / 86400;
-    var v = Math.cos((sunX / cx - 1) * Math.PI);
-    var sunY = horizonY - amplitude * v;
+    var sunY = curveYAtSeconds(sec, horizonY, dayAmplitude, nightAmplitude, H);
 
     var canvasRect = canvas.getBoundingClientRect();
     var cssX = canvasRect.left - canvasRect.left + (sunX / W) * canvasRect.width;
@@ -179,26 +206,21 @@ function updateSunPosition() {
     sunElem.style.left = cssX + 'px';
     sunElem.style.top = cssY + 'px';
 
-    if (sec < sunriseTime || sec > sunsetTime) {
-        elevElem.textContent = '';
-    } else {
-        elevElem.textContent = Math.round(sunElevation) + '\u00B0';
-    }
+    elevElem.textContent = Math.round(sunElevation) + '\u00B0';
 
     nowTime++;
     updateCurrentDateTime();
 }
 
-window.addEventListener('load', function () {
-    socket.onopen = function () {
-        if (socket.readyState === WebSocket.OPEN) {
-            socket.send("getTime");
-        }
-    };
+document.addEventListener('DOMContentLoaded', function () {
+    if (dataInitialized) {
+        initCanvas();
+        drawSunArc();
+        updateSunPosition();
+    }
+
     setInterval(function () {
-        if (socket.readyState === WebSocket.OPEN) {
-            socket.send("getTime");
-        }
+        requestTime();
         updateSunPosition();
     }, 10000);
 });
