@@ -1,0 +1,9 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "references": {
+    "stm32": {
+      "path": "../STM32_Transmitter",
+      "description": "STM32 outdoor sensor node firmware with nRF905 protocol, SHT31, ZH07, UV, and illuminance sensors"
+    }
+  }
+}

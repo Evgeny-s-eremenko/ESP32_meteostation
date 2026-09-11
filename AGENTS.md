@@ -30,6 +30,12 @@
 - `src/config.h` contains nRF905 protocol constants that must remain compatible with the STM32 transmitter.
 - `lib/Forecaster` is vendored; do not modify it unless explicitly requested.
 
+## Cross-Project References
+
+- The related STM32 outdoor-node project is available through the OpenCode reference `@stm32`.
+- Its local path is `../STM32_Transmitter`; it is a separate Git repository and must be committed independently.
+- Use `@stm32/src/...`, `@stm32/include/...`, or the STM32 project's `README.MD` when checking the radio protocol or outdoor sensor implementation.
+
 ## Safety And State
 
 - `src/secrets.h` is local and gitignored. Create it from `secrets.h.example` when needed; never edit, print, or commit credentials.
