@@ -304,34 +304,41 @@
             margin-bottom: 5px;
         }
 
-        .day-info {
-            display: flex;
-            gap: 40px;
-            justify-content: center;
-            margin: 6px 0;
-        }
-
-        .day-info-label {
-            font-size: 12px;
-            color: #979797e5;
-            text-align: center;
-        }
-
-        #dayLength, #nightLength {
-            font-size: 14px;
-            text-align: center;
-        }
-
-        .sun-row {
-            display: flex;
-            justify-content: space-between;
+        .sun-info {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 24px;
             width: 100%;
-            margin: 4px 0;
+            margin-top: 8px;
         }
 
-        .sunrise-label, .sunset-label {
+        .sun-info-column {
+            min-width: 0;
+        }
+
+        .sun-info-column:last-child {
+            text-align: right;
+        }
+
+        .sun-info-item {
+            padding: 7px 12px 5px;
+        }
+
+        .sun-info-item + .sun-info-item {
+            border-top: 1px solid rgba(199, 199, 199, 0.12);
+            margin-top: 2px;
+            padding-top: 8px;
+        }
+
+        .sun-info-label {
+            color: #979797e5;
+            font-size: 12px;
+        }
+
+        .sun-info-value {
+            margin-top: 2px;
+            color: #c7c7c7;
             font-size: 14px;
-            text-align: center;
         }
 
         .bottom-row {
@@ -438,19 +445,27 @@
                     <span id="sunElevation"></span>
                 </div>
             </div>
-            <div class="day-info">
-                <div>
-                    <div class="day-info-label">Продолжительность дня</div>
-                    <div id="dayLength"></div>
+            <div class="sun-info">
+                <div class="sun-info-column">
+                    <div class="sun-info-item">
+                        <div class="sun-info-label">Восход</div>
+                        <div class="sun-info-value" id="sunriseLabel"></div>
+                    </div>
+                    <div class="sun-info-item">
+                        <div class="sun-info-label">День</div>
+                        <div class="sun-info-value" id="dayLength"></div>
+                    </div>
                 </div>
-                <div>
-                    <div class="day-info-label">Продолжительность ночи</div>
-                    <div id="nightLength"></div>
+                <div class="sun-info-column">
+                    <div class="sun-info-item">
+                        <div class="sun-info-label">Закат</div>
+                        <div class="sun-info-value" id="sunsetLabel"></div>
+                    </div>
+                    <div class="sun-info-item">
+                        <div class="sun-info-label">Ночь</div>
+                        <div class="sun-info-value" id="nightLength"></div>
+                    </div>
                 </div>
-            </div>
-            <div class="sun-row">
-                <div class="sunrise-label" id="sunriseLabel"></div>
-                <div class="sunset-label" id="sunsetLabel"></div>
             </div>
             <div class="bottom-row">
                 <div id="currentDateTime"></div>
@@ -511,6 +526,6 @@
 
     <script src="/d3-local-maps.js"></script>
     <script src="/script.js"></script>
-    <script src="/sunset.js?v=4"></script>
+    <script src="/sunset.js?v=5"></script>
 </body>
 </html>

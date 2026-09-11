@@ -64,9 +64,9 @@ function formatDuration(seconds) {
 function updateSunLabels() {
     var el;
     el = document.getElementById('sunriseLabel');
-    if (el) el.textContent = "Восход: " + formatTime(sunriseTime);
+    if (el) el.textContent = formatTime(sunriseTime);
     el = document.getElementById('sunsetLabel');
-    if (el) el.textContent = "Закат: " + formatTime(sunsetTime);
+    if (el) el.textContent = formatTime(sunsetTime);
     el = document.getElementById('solarNoonLabel');
     if (el) el.textContent = "Полдень: " + formatTime(solarNoon);
 
