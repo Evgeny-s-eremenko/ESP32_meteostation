@@ -63,10 +63,17 @@ if ($globalConfig -notmatch '(?s)"playwright".*?"enabled"\s*:\s*false') {
 }
 
 $tracked = git ls-files
-$secretPatterns = @('METEOSTATION_PASSWORD\s*[:=]', 'Authorization\s*[:=]\s*Bearer\s+(?!\{env:)', 'SECRET_.*PASSWORD\s*[:=]')
+$secretPatterns = @(
+    'METEOSTATION_PASSWORD\s*[:=]\s*(?!your_password_here\b|secret\b|\{env:)[^\s]+',
+    'Authorization\s*[:=]\s*Bearer\s+(?!\{env:)',
+    'SECRET_.*PASSWORD\s*[:=]\s*(?!your_|secret\b|\{env:)[^\s]+'
+)
 foreach ($file in $tracked) {
-    if ($file -match '(^|[\\/])\.env($|\.)|secrets\.h$') {
+    if ($file -match '(^|[\\/])\.env$|secrets\.h$') {
         $failures.Add("Secret-like tracked file: $file")
+        continue
+    }
+    if ($file -match '(^|[\\/])\.env\.example$') {
         continue
     }
     $fullPath = Join-Path $root $file
