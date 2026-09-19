@@ -10,13 +10,25 @@
 ## Установка
 
 ```bash
-cd mcp_server
+cd .mcp/meteostation
 pip install -r requirements.txt
 ```
 
 ## Конфигурация
 
-Сервер читает настройки из переменных окружения:
+Сервер сначала читает локальный файл `.env` из этого каталога, затем использует
+переменные окружения. Уже заданные переменные окружения имеют приоритет.
+
+Создайте `.mcp/meteostation/.env` локально и не добавляйте его в Git:
+
+```dotenv
+METEOSTATION_URL=http://192.168.1.100
+METEOSTATION_USER=evgen
+METEOSTATION_PASSWORD=your_password_here
+METEOSTATION_TIMEOUT=60
+```
+
+Переменные конфигурации:
 
 | Переменная | Описание | Обязательна |
 |------------|----------|-------------|
@@ -46,20 +58,16 @@ python server.py
 
 ## Регистрация в OpenCode
 
-Добавьте в `~/.config/opencode/opencode.jsonc`:
+Добавьте в проектный `opencode.json`:
 
 ```json
 {
   "mcp": {
     "meteostation": {
       "type": "local",
-      "command": ["python", "E:/evgen/Arduino/platformio/ESP32_meteostation/mcp_server/server.py"],
-      "enabled": true,
-      "environment": {
-        "METEOSTATION_URL": "http://192.168.1.100",
-        "METEOSTATION_USER": "evgen",
-        "METEOSTATION_PASSWORD": "your_password_here"
-      }
+       "command": ["python", ".mcp/meteostation/server.py"],
+       "cwd": ".",
+       "enabled": true
     }
   },
   "permission": {
@@ -69,7 +77,7 @@ python server.py
 }
 ```
 
-Замените `METEOSTATION_URL`, `METEOSTATION_USER` и `METEOSTATION_PASSWORD` на реальные значения.
+Не добавляйте реальные значения в `opencode.json` или этот README.
 
 ## Инструменты
 

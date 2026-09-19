@@ -5,5 +5,17 @@
       "path": "../STM32_Transmitter",
       "description": "STM32 outdoor sensor node firmware with nRF905 protocol, SHT31, ZH07, UV, and illuminance sensors"
     }
+  },
+  "mcp": {
+    "meteostation": {
+      "type": "local",
+      "command": ["python", ".mcp/meteostation/server.py"],
+      "cwd": ".",
+      "enabled": true
+    }
+  },
+  "permission": {
+    "meteostation_*": "ask",
+    "meteostation_get_*": "allow"
   }
 }

@@ -31,7 +31,12 @@ replacement.txt
 .mimocode/
 
 # ── OpenCode ──────────────────────────────────────────────────
-.opencode/
+.opencode/node_modules/
+.opencode/.env
+.opencode/**/*.local.*
+.opencode/**/generated/
+.opencode/**/tmp/
+.mcp/meteostation/.env
 
 # ── Python ────────────────────────────────────────────────────
 __pycache__/

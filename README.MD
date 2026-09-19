@@ -478,62 +478,36 @@ pio run -e esp32s3 --target uploadfs
 
 ```text
 ESP32_meteostation/
-├── data/                        # LittleFS (веб-интерфейс)
-│   ├── index.html
-│   ├── mobile.html
-│   ├── admin.html
-│   ├── about.html
-│   ├── updateform.html
-│   ├── script.js
-│   ├── restart.js
-│   ├── update.js
-│   ├── sunset.js
-│   ├── d3-local-maps.js
-│   ├── favicon.ico
-│   └── *.png                    # Иконки и изображения
-│
-├── include/
-│   ├── board_config.h           # Пины per-board (ESP32 / ESP32-S3)
-│   └── hamming_secded.h         # Хэмминг SECDED (кодирование/декодирование)
-│
-├── lib/
-│   └── Forecaster/              # Библиотека прогноза погоды
-│
-├── src/
+├── .mcp/                         # Project MCP implementations
+├── .opencode/                    # Agents, commands, plans, project skills
+├── data/                         # LittleFS web application
+├── include/                      # Board and protocol headers
+├── lib/Forecaster/               # Vendored weather forecast library
+├── Nextion display project/      # Nextion display project files
+├── PCB_EasyEDA/                 # PCB and schematic files
+├── scripts/                      # Repository verification scripts
+├── src/                          # ESP32 firmware
 │   ├── main.cpp
-│   ├── config.h                 # Константы проекта
-│   ├── state.h                  # Глобальные переменные (extern)
+│   ├── config.h
+│   ├── state.h
 │   ├── display/
-│   │   └── nextion.cpp/.h       # Дисплей Nextion
 │   ├── forecast/
-│   │   └── forecast.cpp/.h      # Прогноз погоды (Замбретти)
 │   ├── network/
-│   │   ├── influxdb.cpp/.h      # Отправка данных в InfluxDB
-│   │   ├── time_sync.cpp/.h     # Синхронизация времени (NTP)
-│   │   └── wifi.cpp/.h          # Управление WiFi
 │   ├── sensors/
-│   │   ├── bme280.cpp/.h        # Давление, температура, влажность
-│   │   ├── co2.cpp/.h           # CO₂ (MH-Z19)
-│   │   ├── ens160.cpp/.h        # TVOC, eCO₂, AQI (ENS160 + AHT20)
-│   │   └── nrf905.cpp/.h        # Радиоканал nRF905
 │   ├── utils/
-│   │   ├── hamming_secded.cpp   # Хэмминг SECDED
-│   │   ├── heap_monitor.cpp/.h  # Мониторинг памяти
-│   │   ├── i2c_recovery.cpp/.h  # Восстановление шины I²C
-│   │   └── settings.cpp/.h      # NVS: чтение/запись настроек
 │   └── web/
-│       ├── ota.cpp/.h           # OTA-обновление
-│       └── server.cpp/.h        # HTTP API + WebSocket
-│
-├── logs/                        # Логи мониторинга устройства
-├── PCB_EasyEDA/                 # Платы и схемы
-├── Nextion display project/     # Проект дисплея
-│
-├── secrets.h.example            # Шаблон конфигурации
-├── platformio.ini               # Конфигурация сборки
-├── LICENSE                      # CC BY-NC 4.0
+├── AGENTS.md                    # Agent rules and operational context
+├── opencode.json                # Project OpenCode config
+├── platformio.ini               # Build environments and dependencies
+├── secrets.h.example             # Firmware secrets template
+├── skills-lock.json              # Skill origin metadata
+├── LICENSE
 └── README.MD
 ```
+
+The complete agent-oriented tree is maintained in `AGENTS.md`. Generated files,
+device logs, local secrets, and runtime browser artifacts are intentionally not
+listed here.
 
 ---
 
