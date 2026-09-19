@@ -126,6 +126,7 @@ Ignored runtime or generated paths include `.pio/`, `logs/`, `.playwright-mcp/`,
   `& "$env:USERPROFILE\.platformio\penv\Scripts\pio.exe" run -e esp32s3`
 - `esp32dev` is classic ESP32 with 4 MB flash; `esp32s3` is ESP32-S3 with 16 MB flash and OPI PSRAM.
 - For web-only changes build only LittleFS: `... run -e <env> --target buildfs`.
+- OTA upload of `firmware.bin` or `littlefs.bin` through the `meteostation` MCP may return a timeout even when the ESP32 has accepted the image, written it, and rebooted successfully. Treat this timeout as an indeterminate result, not an upload failure: wait for the station to return, then verify the result by opening the station with Playwright and checking the deployed version/content. Do not immediately repeat the upload unless the station remains unavailable or verification proves that the old content is still served.
 - There are no unit tests. Do not ignore compiler warnings.
 - Serial monitor is 115200 baud.
 
