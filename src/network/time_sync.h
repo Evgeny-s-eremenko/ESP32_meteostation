@@ -3,4 +3,5 @@
 
 double calcSunElevation(double latitude, double longitude, time_t timestamp);
 double calcSolarNoon(double longitude, time_t timestamp);
+double calcSunDeclination(time_t timestamp);
 void taskGetTime(void *pvParameters);

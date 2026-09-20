@@ -5,8 +5,17 @@ let sunriseTime = 0;
 let sunsetTime = 0;
 let sunElevation = 0;
 let solarNoon = 0;
+let latitude = NaN;
+let solarDeclination = NaN;
 let dataInitialized = false;
 let canvasReady = false;
+
+// ── Физическая модель Солнца ─────────────────────────────────
+const VISUAL_HORIZON_ELEVATION = -0.833; // визуальный горизонт, градусы (рефракция + радиус диска)
+const VISUAL_ELEVATION_RANGE = 110;      // диапазон высот, отображаемый над горизонтом, градусы
+const HORIZON_FRACTION = 0.65;           // положение линии горизонта на канвасе
+const SECONDS_PER_DEGREE = 240;          // 15°/час = 1°/240с
+const DEG = Math.PI / 180;
 
 function requestTime() {
     if (socket.readyState === WebSocket.OPEN) {
@@ -28,6 +37,8 @@ socket.onmessage = function (event) {
         if ("sunsetTime" in data) sunsetTime = data.sunsetTime;
         if ("sunElevation" in data) sunElevation = data.sunElevation;
         if ("solarNoon" in data) solarNoon = data.solarNoon;
+        if ("latitude" in data) latitude = Number(data.latitude);
+        if ("solarDeclination" in data) solarDeclination = Number(data.solarDeclination);
 
         dataInitialized = true;
         initCanvas();
@@ -96,7 +107,35 @@ function initCanvas() {
     canvasReady = true;
 }
 
+// ── Физическая высота Солнца для момента времени суток (секунды) ──
+function hasPhysicalModel() {
+    return isFinite(latitude) && isFinite(solarDeclination) &&
+           isFinite(solarNoon) && solarNoon > 0;
+}
+
+function physicalElevationAt(seconds) {
+    var hourAngle = (seconds - solarNoon) / SECONDS_PER_DEGREE;
+    var sinElev = Math.sin(latitude * DEG) * Math.sin(solarDeclination * DEG) +
+                  Math.cos(latitude * DEG) * Math.cos(solarDeclination * DEG) *
+                  Math.cos(hourAngle * DEG);
+    if (sinElev > 1) sinElev = 1;
+    if (sinElev < -1) sinElev = -1;
+    return Math.asin(sinElev) / DEG;
+}
+
+// Линейное преобразование высоты в пиксель: горизонт соответствует
+// VISUAL_HORIZON_ELEVATION, а VISUAL_ELEVATION_RANGE градусов укладывается
+// в участок канваса над горизонтом.
+function elevationToY(elevation, horizonY) {
+    var pixelsPerDegree = horizonY / VISUAL_ELEVATION_RANGE;
+    return horizonY - (elevation - VISUAL_HORIZON_ELEVATION) * pixelsPerDegree;
+}
+
 function curveYAtSeconds(seconds, horizonY, dayAmplitude, nightAmplitude, H) {
+    if (hasPhysicalModel()) {
+        return elevationToY(physicalElevationAt(seconds), horizonY);
+    }
+
     if (seconds >= sunriseTime && seconds <= sunsetTime) {
         if (seconds <= solarNoon) {
             var morningProgress = (seconds - sunriseTime) / (solarNoon - sunriseTime);
@@ -127,7 +166,7 @@ function drawSunArc() {
 
     ctx.clearRect(0, 0, W, H);
 
-    var horizonY = Math.round(H * 0.65);
+    var horizonY = Math.round(H * HORIZON_FRACTION);
     var dayAmplitude = Math.round(H * 0.55);
     var nightAmplitude = Math.round(H * 0.25);
 
@@ -189,7 +228,7 @@ function updateSunPosition() {
     var dpr = window.devicePixelRatio || 1;
     var W = canvas.width / dpr;
     var H = canvas.height / dpr;
-    var horizonY = Math.round(H * 0.65);
+    var horizonY = Math.round(H * HORIZON_FRACTION);
     var dayAmplitude = Math.round(H * 0.55);
     var nightAmplitude = Math.round(H * 0.25);
 
@@ -206,7 +245,8 @@ function updateSunPosition() {
     sunElem.style.left = cssX + 'px';
     sunElem.style.top = cssY + 'px';
 
-    elevElem.textContent = Math.round(sunElevation) + '\u00B0';
+    var displayElevation = hasPhysicalModel() ? physicalElevationAt(sec) : sunElevation;
+    elevElem.textContent = Math.round(displayElevation) + '\u00B0';
 
     nowTime++;
     updateCurrentDateTime();

@@ -402,14 +402,17 @@ void sendTimeData() {
 
   time_t now = time(nullptr);
 
-  StaticJsonDocument<256> json;
+  StaticJsonDocument<512> json;
   json["nowTime"]      = (double)now;
   json["sunriseTime"]  = sunriseTime * 60;
   json["sunsetTime"]   = sunsetTime  * 60;
   json["sunElevation"] = calcSunElevation(latitude, longitude, now);
   json["solarNoon"]    = calcSolarNoon(longitude, now);
+  json["latitude"]          = latitude;
+  json["solarDeclination"]  = calcSunDeclination(now);
+  json["apiVersion"]        = 2;
 
-  char jsonBuffer[320];
+  char jsonBuffer[512];
   size_t len = serializeJson(json, jsonBuffer, sizeof(jsonBuffer));
   if (len >= sizeof(jsonBuffer) - 1) {
     ESP_LOGE("WS", "JSON-буфер времени переполнен!");

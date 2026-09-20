@@ -101,6 +101,17 @@ double calcSunElevation(double latitude, double longitude, time_t timestamp) {
   return astroRadToDeg(asin(sinElev));
 }
 
+double calcSunDeclination(time_t timestamp) {
+  struct tm *timeinfo = localtime(&timestamp);
+
+  int y = timeinfo->tm_year + 1900;
+  int m = timeinfo->tm_mon + 1;
+  int d = timeinfo->tm_mday;
+  double jd = astroCalcJD(y, m, d);
+
+  return astroCalcSunDeclination(jd);
+}
+
 double calcSolarNoon(double longitude, time_t timestamp) {
   struct tm *timeinfo = localtime(&timestamp);
 
